@@ -1,135 +1,169 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Medical AutoML Interface</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8">
+    <title data-i18n="title">Medical AutoML Interface</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="{{ url_for('static', filename='lang.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='script.js') }}"></script> 
+  </head>
 
-<h1>Medical AutoML Interface</h1>
+  <body>
+    <div class="settings-container">
+      <button id="settings-toggle" class="settings-button">
+        <i class="fas fa-cog fa-2x"></i> 
+      </button>
 
-<div class="main-container">
-
-  <!-- Left Column: Chat -->
-  <div class="chat-column">
-    <section>
-      <h2>AI Assistant</h2>
-      <div id="chat-box"></div>
-      <input type="text" id="chat-input" placeholder="Ask a question...">
-      <button onclick="sendChat()">Send</button>
-    </section>
-  </div>
-
-  <div class="right-content">
-    <div class="tab-radio-group">
-      <input type="radio" id="tab-train" name="mode" value="train" checked onchange="switchMode()">
-      <label for="tab-train">Training</label>
-
-      <input type="radio" id="tab-predict" name="mode" value="predict" onchange="switchMode()">
-      <label for="tab-predict">Prediction</label>
+      <div id="settings-menu" class="settings-menu hidden">
+        <div class="menu-group">
+          <label for="language-select">🌐 <span data-i18n="language">Langue</span></label>
+          <select id="language-select" onchange="changeLanguage()">
+            <option value="fr">Français</option>
+            <option value="en">English</option>
+            <option value="es">Español</option>
+          </select>
+        </div>
+      </div>
     </div>
 
-    <!-- SECTION 1: Training -->
-    <section id="training-section">
-      <h2>Create your model from a training dataset</h2>
-      <p>Upload your dataset to train the model:</p>
-      
-      <!-- CSV Upload -->
-      <div id="csv-upload-section">
-        <input type="file" id="upload-csv" accept=".csv" style="display:none;">
-        <label for="upload-csv" class="custom-upload-button" id="upload-csv-label">📁 Browse a CSV file</label>        
-        <div id="csv-file-info" style="display:none;">
-          <span id="csv-file-name"></span>
-          <button onclick="removeCSVFile()" class="remove-btn">✕</button>
+    <h1 data-i18n="title">Medical AutoML Interface</h1>
+
+    <div class="main-container">
+
+      <!-- Left Column: Chat -->
+      <div class="chat-column">
+        <section>
+          <h2 data-i18n="assistantTitle">AI Assistant</h2>
+          <div id="chat-box"></div>
+          <input type="text" id="chat-input" data-i18n-placeholder="chatPlaceholder" placeholder="Ask a question...">
+          <button onclick="sendChat()" data-i18n="sendButton">Send</button>
+        </section>
+      </div>
+
+      <div class="right-content">
+        <div class="tab-radio-group">
+          <input type="radio" id="tab-train" name="mode" value="train" checked onchange="switchMode()">
+          <label for="tab-train" data-i18n="tabTrain">Training</label>
+
+          <input type="radio" id="tab-predict" name="mode" value="predict" onchange="switchMode()">
+          <label for="tab-predict" data-i18n="tabPredict">Prediction</label>
         </div>
 
-        <div id="csv-preview" style="display:none;">
-          <h3>File preview</h3>
-          <div class="table-wrapper">
-            <table id="preview-table"></table>
+        <!-- SECTION 1: Training -->
+        <section id="training-section">
+          <h2 data-i18n="trainSectionTitle">Create your model from a training dataset</h2>
+          <p data-i18n="uploadPrompt">Upload your dataset to train the model:</p>
+          
+          <!-- CSV Upload -->
+          <div id="csv-upload-section">
+            <input type="file" id="upload-csv" accept=".csv" style="display:none;">
+            <label for="upload-csv" class="custom-upload-button" id="upload-csv-label" data-i18n="browseCSV">📁 Browse a CSV file</label>        
+            <div id="csv-file-info" style="display:none;">
+              <span id="csv-file-name"></span>
+              <button onclick="removeCSVFile()" class="remove-btn">✕</button>
+            </div>
+
+            <div id="csv-preview" style="display:none;">
+              <h3 data-i18n="previewTitle">File preview</h3>
+              <div id="csv-stats" style="margin-top: 10px; font-size: 14px;">
+                <p><strong><span data-i18n="rows">Rows:</span></strong> <span id="csv-rows-count"></span></p>
+                <p><strong><span data-i18n="columns">Columns:</span></strong> <span id="csv-columns-count"></span></p>
+                <p><strong><span data-i18n="missing">Missing values (NaN):</span></strong> <span id="csv-nan-count"></span></p>
+              </div>
+              <div class="table-wrapper">
+                <table id="preview-table"></table>
+              </div>
+
+              <label><span data-i18n="targetColumn">Target column:</span>
+                <select id="target-column"></select>
+              </label><br><br>
+
+              <label for="training-time-limit" data-i18n="maxTime">Maximum training time (in seconds):</label>
+              <input type="range" id="training-time-limit" min="30" max="600" step="10" value="120" oninput="updateTimeDisplay()">
+              <span id="time-limit-display">120</span> <span data-i18n="seconds">seconds</span>
+              <br><br>
+
+              <div style="display: flex; align-items: center; gap: 15px; margin-top: 10px;">
+                <button class="primary-action-button" onclick="startTraining()" data-i18n="startTraining">Start training</button>
+
+                <label style="display: flex; align-items: center; font-size: 14px;">
+                  <input type="checkbox" id="shap-toggle" style="margin-right: 5px;">
+                  <span data-i18n="shapToggle">SHAP Explainability</span>
+                </label>
+              </div>
+
+              <div id="training-spinner" class="spinner" style="display: none;"></div>
+
+            </div>
           </div>
 
-          <label>Target column:
-            <select id="target-column"></select>
-          </label><br><br>
+          <!-- Model Upload -->
+          <div id="model-upload-section" style="display:none;">
+            <input type="file" id="upload-model" accept=".zip" style="display:none;">
+            <label for="upload-model" class="custom-upload-button" data-i18n="browseModel">📦 Browse a ZIP model</label>
 
-          <label for="training-time-limit">Maximum training time (in seconds):</label>
-          <input type="range" id="training-time-limit" min="30" max="600" step="10" value="120" oninput="updateTimeDisplay()">
-          <span id="time-limit-display">120</span> seconds
-          <br><br>
+            <div id="model-file-info" style="display:none;">
+              <span id="model-file-name"></span>
+              <button onclick="removeModelFile()" class="remove-btn">✕</button>
+            </div>
+          </div>
 
-          <button class="primary-action-button" onclick="startTraining()">Start training</button>
-          <div id="training-spinner" class="spinner" style="display: none;"></div>
-        </div>
+          <!-- SECTION 2: Results -->
+          <section id="training-results" style="display:none;"></section>
+        </section>
+
+        <!-- SECTION 3: Predictions -->
+        <section id="predict-section" style="display: none;">
+          <h2 data-i18n="predTitle">Predictions on new data</h2>
+
+          <!-- Step 1: Upload CSV -->
+          <div id="step-1-csv" class="prediction-step">
+            <h3 data-i18n="step1">Step 1: Upload your CSV file</h3>
+            <input type="file" id="predict-csv" accept=".csv" style="display: none;">
+            <label for="predict-csv" id="predict-csv-label" class="custom-upload-button" data-i18n="browseCSV">📁 Select a CSV file</label>
+
+            <div id="predict-file-info" style="display:none;">
+              <span id="predict-file-name"></span>
+              <button onclick="removePredictFile()" class="remove-btn">✕</button>
+            </div>
+          </div>
+
+          <!-- Step 2: Upload ZIP model -->
+          <div id="step-2-model" class="prediction-step" style="display: none;">
+            <h3 data-i18n="step2">Step 2: Upload your model (ZIP)</h3>
+            <input type="file" id="predict-model-zip" accept=".zip" style="display: none;">
+            <label for="predict-model-zip" id="predict-zip-label" class="custom-upload-button" data-i18n="browseModel">📦 Select a .zip file</label>
+
+            <div id="predict-model-info" style="display: none;">
+              <span id="predict-model-name"></span>
+              <button onclick="removePredictModel()" class="remove-btn">✕</button>
+            </div>
+          </div>
+
+          <!-- Step 3: Run prediction -->
+          <div id="step-3-predict" class="prediction-step" style="display: none;">
+            <h3 data-i18n="step3">Step 3: Run prediction</h3>
+            <button class="primary-action-button" onclick="runPrediction()" data-i18n="predictButton">Predict</button>
+            <div id="predict-spinner" class="spinner" style="display: none;"></div>
+          </div>
+
+          <!-- Prediction Results -->
+          <div id="prediction-results" style="display: none; margin-top: 20px;">
+            <h3 data-i18n="resultsTitle">Results:</h3>
+            <div class="table-wrapper">
+              <table id="prediction-table"></table>
+            </div>
+          </div>
+        </section>
+
       </div>
+    </div>
 
-      <!-- Model Upload -->
-      <div id="model-upload-section" style="display:none;">
-        <input type="file" id="upload-model" accept=".zip" style="display:none;">
-        <label for="upload-model" class="custom-upload-button">📦 Browse a ZIP model</label>
-
-        <div id="model-file-info" style="display:none;">
-          <span id="model-file-name"></span>
-          <button onclick="removeModelFile()" class="remove-btn">✕</button>
-        </div>
-      </div>
-
-      <!-- SECTION 2: Results -->
-      <section id="training-results" style="display:none;">
-      </section>
-    </section>
-
-    <!-- SECTION 3: Predictions -->
-    <section id="predict-section" style="display: none;">
-      <h2>Predictions on new data</h2>
-
-      <!-- Step 1: Upload CSV -->
-      <div id="step-1-csv" class="prediction-step">
-        <h3>Step 1: Upload your CSV file</h3>
-        <input type="file" id="predict-csv" accept=".csv" style="display: none;">
-        <label for="predict-csv" id="predict-csv-label" class="custom-upload-button">📁 Select a CSV file</label>
-
-        <div id="predict-file-info" style="display:none;">
-          <span id="predict-file-name"></span>
-          <button onclick="removePredictFile()" class="remove-btn">✕</button>
-        </div>
-      </div>
-
-      <!-- Step 2: Upload ZIP model -->
-      <div id="step-2-model" class="prediction-step" style="display: none;">
-        <h3>Step 2: Upload your model (ZIP)</h3>
-        <input type="file" id="predict-model-zip" accept=".zip" style="display: none;">
-        <label for="predict-model-zip" id="predict-zip-label" class="custom-upload-button">📦 Select a .zip file</label>
-
-        <div id="predict-model-info" style="display: none;">
-          <span id="predict-model-name"></span>
-          <button onclick="removePredictModel()" class="remove-btn">✕</button>
-        </div>
-      </div>
-
-      <!-- Step 3: Run prediction -->
-      <div id="step-3-predict" class="prediction-step" style="display: none;">
-        <h3>Step 3: Run prediction</h3>
-        <button class="primary-action-button" onclick="runPrediction()">Predict</button>
-        <div id="predict-spinner" class="spinner" style="display: none;"></div>
-      </div>
-
-      <!-- Prediction Results -->
-      <div id="prediction-results" style="display: none; margin-top: 20px;">
-        <h3>Results:</h3>
-        <div class="table-wrapper">
-          <table id="prediction-table"></table>
-        </div>
-      </div>
-    </section>
-
-  </div>
-</div>
-
-<script src="{{ url_for('static', filename='script.js') }}"></script>
-
-</body>
+    <div id="custom-alert" class="custom-alert hidden"></div>
+  </body>
 </html>

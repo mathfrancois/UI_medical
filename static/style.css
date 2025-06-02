@@ -8,6 +8,77 @@ body {
   overflow-x: hidden; 
 }
 
+.settings-container {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+}
+
+.settings-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+.settings-button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.settings-button .icon {
+  width: 24px;
+  height: 24px;
+  color: #333;
+}
+
+.settings-menu {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  width: 200px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  padding: 16px;
+  z-index: 999;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.settings-menu.hidden {
+  display: none;
+}
+
+.menu-group {
+  margin-bottom: 12px;
+}
+
+.menu-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #444;
+}
+
+.menu-group select {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+  background: #f9f9f9;
+  transition: border-color 0.2s;
+}
+
+.menu-group select:focus {
+  border-color: #007bff;
+  outline: none;
+}
+
+
 .main-container {
   display: flex;
   gap: 40px; 
@@ -83,6 +154,16 @@ th, td {
   margin-bottom: 10px;
 }
 
+.download-buttons-container {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  justify-content: flex-start;
+}
+
+
+
 .remove-btn {
   background-color: transparent;
   border: none;
@@ -90,6 +171,10 @@ th, td {
   font-size: 16px;
   cursor: pointer;
   margin-left: 10px;
+}
+
+#training-results {
+  margin-top: 40px;
 }
 
 .table-wrapper {
@@ -191,22 +276,50 @@ th, td {
 }
 
 .download-button {
-  display: inline-block;
-  padding: 10px 20px;
-  background-color: #005aaa;
-  color: white;
+  all: unset; 
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 24px;
+  height: 50px;
+  min-width: 250px;
   font-weight: bold;
+  font-size: 16px;
+  text-align: center;
+  color: white;
   border-radius: 8px;
+  text-decoration: none;
   cursor: pointer;
   margin-top: 15px;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-  text-decoration: none;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
   transition: background-color 0.3s ease;
+  border: none;
 }
 
-.download-button:hover {
-  background-color: #004080;
+a.download-button {
+  text-decoration: none;
 }
+
+button.download-button {
+  border: none;
+}
+
+.download-model {
+  background-color: #6f42c1;
+}
+.download-model:hover {
+  background-color: #5936a4;
+}
+
+.download-plots {
+  background-color: #17a2b8;
+}
+.download-plots:hover {
+  background-color: #117a8b;
+}
+
+
+
 
 .tab-radio-group {
   display: flex;
@@ -259,6 +372,36 @@ th, td {
   .tab-radio-group label:last-child {
     border-bottom: none;
   }
+}
+
+.custom-alert {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background-color: #ff4d4f;
+  color: white;
+  padding: 15px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  z-index: 9999;
+  font-size: 16px;
+  transition: opacity 0.5s ease, transform 0.3s ease;
+  max-width: 300px;
+}
+
+.custom-alert.success {
+  background-color: #28a745;
+}
+
+.custom-alert.warning {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+.custom-alert.hidden {
+  opacity: 0;
+  transform: translateY(-20px);
+  pointer-events: none;
 }
 
 

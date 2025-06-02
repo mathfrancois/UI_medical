@@ -18,10 +18,11 @@ os.makedirs(MODEL_FOLDER, exist_ok=True)
 def create_training_folder(dataset_filename, base_dir=MODEL_FOLDER):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     dataset_name = os.path.splitext(os.path.basename(dataset_filename))[0]
-    folder_name = f"{timestamp}_{dataset_name}"
+    folder_name = f"{dataset_name}_{timestamp}"
+    zip_filename = f"model_{dataset_name}_{timestamp}.zip"
     path = os.path.join(base_dir, folder_name)
     os.makedirs(path, exist_ok=True)
-    return path, folder_name
+    return path, folder_name, zip_filename
 
 @app.route('/')
 def index():
@@ -45,26 +46,28 @@ def train():
         if df[target_column].isnull().all():
             return jsonify({"error": f"Target column '{target_column}' contains only missing values."}), 400
 
-        training_folder, training_id = create_training_folder(file.filename)
+        training_folder, training_id, zip_filename = create_training_folder(file.filename)
 
-        metrics = train_model(csv_path, target_column, time_limit, training_folder)
+        include_shap = request.form.get("include_shap", "false").lower() == "true"
 
-        zip_path = shutil.make_archive(training_folder, 'zip', training_folder)
-        metrics['download_url'] = f"/download/{training_id}"
+        metrics = train_model(csv_path, target_column, time_limit, training_folder, include_shap)
+
+        # Créer le fichier zip avec le bon nom
+        zip_path = os.path.join(MODEL_FOLDER, zip_filename)
+        shutil.make_archive(base_name=zip_path.replace('.zip', ''), format='zip', root_dir=training_folder)
+
+        metrics['download_url'] = f"/download_model/{zip_filename}"
         return jsonify(metrics)
 
     except Exception as e:
         return jsonify({"error": f"Training failed: {str(e)}"}), 500
 
-
-@app.route('/download/<training_id>')
-def download_model(training_id):
-    zip_filename = f"{training_id}.zip"
-    zip_path = os.path.join(MODEL_FOLDER, zip_filename)
+@app.route('/download_model/<zip_filename>')
+def download_model(zip_filename):
+    zip_path = os.path.join(MODEL_FOLDER, secure_filename(zip_filename))
     if not os.path.exists(zip_path):
         return "File not found", 404
     return send_file(zip_path, as_attachment=True)
-
 
 
 @app.route('/predict', methods=['POST'])
@@ -96,7 +99,9 @@ def predict():
         except zipfile.BadZipFile:
             return jsonify({"error": "Uploaded model file is not a valid ZIP archive."}), 400
 
-        predictions = predict_model(csv_path, decompression_folder)
+        result = predict_model(csv_path, decompression_folder)
+        predictions = result['predictions']  
+        plots = result['plots']             
 
         pred_filename = f"{identifier}_predictions.csv"
         pred_path = os.path.join(PREDICTION_FOLDER, pred_filename)
@@ -104,13 +109,15 @@ def predict():
 
         return jsonify({
             "preview": predictions[:5],
-            "download_url": f"/download_prediction/{pred_filename}"
+            "download_url": f"/download_prediction/{pred_filename}",
+            "plots": plots
         })
 
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 400
     except Exception as e:
         return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
+
 
 
 @app.route('/download_prediction/<filename>')
@@ -122,4 +129,4 @@ def download_prediction(filename):
 
 
 if __name__ == '__main__':
-    app.run(debug=False)
+    app.run(debug=True)

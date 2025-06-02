@@ -9,11 +9,35 @@ import seaborn as sns
 from io import BytesIO
 import base64
 import numpy as np
+import shap
+
 
 from sklearn.metrics import (
     accuracy_score, f1_score, roc_auc_score,
     mean_squared_error, r2_score, roc_curve, confusion_matrix, ConfusionMatrixDisplay
 )
+
+def generate_force_plot_base64(shap_values, features):
+    plt.figure(figsize=(10, 1))  # Ajuste la hauteur selon le besoin
+    shap.plots.force(shap_values, matplotlib=True)
+    buffer = BytesIO()
+    plt.savefig(buffer, format="png", bbox_inches='tight')
+    buffer.seek(0)
+    image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
+    plt.close()
+    return image_base64
+
+def shap_plot_to_base64(plot_func, *args, **kwargs):
+    plt.figure()
+    plot_func(*args, **kwargs, show=False)
+    buffer = BytesIO()
+    plt.savefig(buffer, format='png', bbox_inches='tight')
+    buffer.seek(0)
+    image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
+    plt.close()
+    return image_base64
+
+
 
 def generate_rmse_error_histogram_base64(y_true, y_pred):
     errors = y_pred - y_true  # or y_true - y_pred depending on your interpretation
@@ -34,6 +58,23 @@ def generate_rmse_error_histogram_base64(y_true, y_pred):
     plt.close()
 
     return image_base64
+
+def generate_feature_importance_plot(importances):
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x=importances['importance'], y=importances.index, palette='viridis')
+    plt.title('Feature Importance')
+    plt.xlabel('Importance')
+    plt.ylabel('Features')
+    plt.tight_layout()
+
+    buffer = BytesIO()
+    plt.savefig(buffer, format='png')
+    buffer.seek(0)
+    image_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+    plt.close()
+
+    return image_base64
+
 
 
 def generate_metric_plot(metric_name, y_true=None, y_pred=None, y_proba=None, class_labels=None):
@@ -89,15 +130,31 @@ def generate_metric_plot(metric_name, y_true=None, y_pred=None, y_proba=None, cl
 
 
 
-
-def train_model(csv_path, target_column, time_limit, save_path):
-    try : 
+def train_model(csv_path, target_column, time_limit, save_path, include_shap):
+    try:
         save_path = os.path.abspath(save_path)
         df = TabularDataset(csv_path)
+
         if df[target_column].isnull().any():
-                raise ValueError(f"Target column '{target_column}' contains missing values.")
-        
+            raise ValueError(f"Target column '{target_column}' contains missing values.")
+
         predictor = TabularPredictor(label=target_column, path=save_path).fit(df, time_limit=time_limit)
+
+        model = predictor._trainer.load_model(predictor._trainer.model_best)
+
+        shap_summary_plot = None
+
+        if (include_shap) :
+            # SHAP values
+            X = df.drop(columns=[target_column])
+            explainer = shap.Explainer(model.predict, X)
+            shap_values = explainer(X)
+
+            # SHAP plots en image statique
+            shap_summary_plot = shap_plot_to_base64(shap.summary_plot, shap_values, X)
+
+        feature_importance_df = predictor.feature_importance(df)
+        feature_importance_plot = generate_feature_importance_plot(feature_importance_df)
 
         leaderboard = predictor.leaderboard(silent=True)
         best_model = predictor.model_best
@@ -143,26 +200,93 @@ def train_model(csv_path, target_column, time_limit, save_path):
             r2 = r2_score(y_test, y_pred)
             perf_data = {
                 'r2': {
-                    'value': r2            },
+                    'value': r2
+                },
                 'rmse': {
                     'value': rmse,
                     'plot': generate_metric_plot('rmse', y_true=y_test, y_pred=y_pred),
-                    'plot_hist' : generate_rmse_error_histogram_base64(y_true=y_test, y_pred=y_pred)
+                    'plot_hist': generate_rmse_error_histogram_base64(y_true=y_test, y_pred=y_pred)
                 }
             }
 
         score_metric = predictor.eval_metric.name if hasattr(predictor.eval_metric, 'name') else str(predictor.eval_metric)
 
-        return {
+        results = {
             'best_model': best_model,
             'train_time': float(leaderboard.loc[leaderboard['model'] == best_model, 'fit_time'].values[0]),
             'task_type': task_type,
             'score_metric': score_metric,
-            'metrics': perf_data
+            'metrics': perf_data,
+            'feature_importance_plot': feature_importance_plot,
         }
+
+        if include_shap : 
+            results['shap_plots'] = shap_summary_plot
+
+        return results
+    
     except Exception as e:
         raise RuntimeError(f"Training error: {str(e)}")
 
+
+def plot_regression_distribution(y_pred):
+    plt.figure(figsize=(8, 6))
+    sns.histplot(y_pred, bins=30, kde=True, color='skyblue')
+    plt.title("Distribution of Predicted Values")
+    plt.xlabel("Predicted Values")
+    plt.ylabel("Frequency")
+    plt.tight_layout()
+
+    buffer = BytesIO()
+    plt.savefig(buffer, format="png")
+    buffer.seek(0)
+    image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
+    plt.close()
+    return image_base64
+
+def plot_prediction_outliers(y_pred):
+    plt.figure(figsize=(8, 6))
+    sns.boxplot(x=y_pred, color="tomato")
+    plt.title("Outlier Detection in Predictions")
+    plt.xlabel("Predicted Value")
+    plt.tight_layout()
+
+    buffer = BytesIO()
+    plt.savefig(buffer, format="png")
+    buffer.seek(0)
+    image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
+    plt.close()
+    return image_base64
+
+def plot_predicted_class_distribution(y_pred):
+    plt.figure(figsize=(8, 6))
+    sns.countplot(x=y_pred, palette='pastel')
+    plt.title("Predicted Class Distribution")
+    plt.xlabel("Predicted Class")
+    plt.ylabel("Number of Occurrences")
+    plt.tight_layout()
+
+    buffer = BytesIO()
+    plt.savefig(buffer, format="png")
+    buffer.seek(0)
+    image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
+    plt.close()
+    return image_base64
+
+def plot_prediction_confidence(y_proba_df):
+    plt.figure(figsize=(10, 6))
+    sns.boxplot(data=y_proba_df, orient='h', palette='Set2')
+    plt.title("Predicted Probability Distribution by Class")
+    plt.xlabel("Predicted Probability")
+    plt.ylabel("Class")
+    plt.tight_layout()
+
+    buffer = BytesIO()
+    plt.savefig(buffer, format="png")
+    buffer.seek(0)
+    image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
+    plt.close()
+    return image_base64
 
 
 def predict_model(csv_path, model_path):
@@ -180,15 +304,43 @@ def predict_model(csv_path, model_path):
         if missing_cols:
             raise ValueError(
                 f"Your file does not contain the columns expected by the model: {', '.join(missing_cols)}."
-                "Please ensure that the dataset contains exactly the same columns as those used during training."
+                " Please ensure that the dataset contains exactly the same columns as those used during training."
             )
         if extra_cols:
             raise ValueError(
                 f"Your file contains columns not recognized by the template: {', '.join(extra_cols)}."
-                "Please keep only columns used during training."
+                " Please keep only columns used during training."
             )
+
+        # Générer les prédictions
         predictions = predictor.predict(df)
-        return predictions.reset_index().to_dict(orient='records')
+        task_type = predictor.problem_type
+        output_data = {
+            'predictions': predictions.reset_index().to_dict(orient='records'),
+            'plots': {}
+        }
+
+        # Génération des visualisations selon le type de tâche
+        if task_type == 'regression':
+            output_data['plots'] = {
+                'distribution': plot_regression_distribution(predictions),
+            }
+
+        elif task_type == 'binary':
+            y_proba = predictor.predict_proba(df)
+            output_data['plots'] = {
+                'class_distribution': plot_predicted_class_distribution(predictions),
+                'confidence': plot_prediction_confidence(y_proba)
+            }
+
+        elif task_type == 'multiclass':
+            y_proba = predictor.predict_proba(df)
+            output_data['plots'] = {
+                'class_distribution': plot_predicted_class_distribution(predictions),
+                'confidence': plot_prediction_confidence(y_proba)
+            }
+
+        return output_data
 
     except Exception as e:
         raise RuntimeError(str(e))
