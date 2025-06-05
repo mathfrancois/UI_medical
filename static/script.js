@@ -1,4 +1,6 @@
-let parsedData = [];
+let lastTrainedModelPath = null;
+let lastUsedTargetColumn = null;
+let lastCleanedCsvBlob = null;
 
 window.addEventListener("DOMContentLoaded", () => {
   const savedLang = localStorage.getItem("selectedLanguage") || "en";
@@ -53,6 +55,10 @@ function changeLanguage(lang) {
   }
 }
 
+function t(key) {
+  const lang = localStorage.getItem("selectedLanguage") || "en";
+  return translations[lang] && translations[lang][key] ? translations[lang][key] : key;
+}
 
 
 function switchMode() {
@@ -87,81 +93,187 @@ function removeModelFile() {
 
 document.getElementById('upload-csv').addEventListener('change', function () {
   const file = this.files[0];
-  if (file && file.name.endsWith('.csv')) {
-    // Cacher l'input et le bouton
+  const acceptedExtensions = ['.csv', '.xls', '.xlsx', '.xlsm', '.arff'];
+  if (file && acceptedExtensions.some(ext => file.name.endsWith(ext))) {
+    // Cacher input + bouton
     this.style.display = 'none';
     document.getElementById('upload-csv-label').style.display = 'none';
 
     document.getElementById('csv-file-name').textContent = file.name;
     document.getElementById('csv-file-info').style.display = 'inline';
 
-    // Aperçu (inchangé)
+    const previewTable = document.getElementById('preview-table');
+    previewTable.innerHTML = ''; // Reset tableau
     document.getElementById('csv-preview').style.display = 'block';
+
+    const ext = file.name.split('.').pop().toLowerCase();
     const reader = new FileReader();
-    reader.onload = function (e) {
-      const previewTable = document.getElementById('preview-table');
-      const content = e.target.result;
-      const parsed = Papa.parse(content, {
-        header: false,
-        skipEmptyLines: true
-      });
-      const rows = parsed.data;
 
-      const header = rows[0];
-      const numColumns = header.length;
-      const numRows = rows.length - 1;
-
-      let nanCount = 0;
-
-      for (let i = 1; i < rows.length; i++) {
-        nanCount += rows[i].filter(cell =>
-          cell.trim() === "" || cell.trim().toLowerCase() === "nan"
-        ).length;
-      }
-
-
-      // Afficher les stats
-      document.getElementById('csv-rows-count').textContent = numRows;
-      document.getElementById('csv-columns-count').textContent = numColumns;
-      document.getElementById('csv-nan-count').textContent = nanCount;
-      const thead = document.createElement("thead");
-      const headRow = document.createElement("tr");
-      header.forEach(col => {
-        const th = document.createElement("th");
-        th.textContent = col;
-        headRow.appendChild(th);
-      });
-      thead.appendChild(headRow);
-      previewTable.appendChild(thead);
-
-      const tbody = document.createElement("tbody");
-      for (let i = 1; i < Math.min(rows.length, 6); i++) {
-        const row = rows[i]; 
-        const tr = document.createElement("tr");
-        row.forEach(cell => {
-          const td = document.createElement("td");
-          td.textContent = cell;
-          tr.appendChild(td);
+    if (ext === 'csv' || ext === 'arff') {
+      reader.onload = function (e) {
+        const content = e.target.result;
+        const parsed = Papa.parse(content, {
+          header: false,
+          skipEmptyLines: true
         });
-        tbody.appendChild(tr);
-      }
-      previewTable.appendChild(tbody);
-
-      const targetSelect = document.getElementById("target-column");
-      targetSelect.innerHTML = "";
-      header.forEach(col => {
-        const option = document.createElement("option");
-        option.value = col;
-        option.textContent = col;
-        targetSelect.appendChild(option);
-      });
-    };
-    reader.readAsText(file);
+        buildPreview(parsed.data);
+      };
+      reader.readAsText(file);
+    } else if (['xls', 'xlsx', 'xlsm'].includes(ext)) {
+      reader.onload = function (e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+        buildPreview(json);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+    
   } else {
-    showAlert("Please select a .csv file", 'warning');
+    showAlert(t("pleaseSelectFile"), 'warning');
     this.value = '';
   }
 });
+
+function buildStats(rows) {
+  const header = rows[0];
+  const dataRows = rows.slice(1);
+
+  const stats = header.map((col, idx) => {
+    const colData = dataRows.map(row => row[idx]).filter(val => val !== "" && val !== null && val !== undefined);
+    const isNumeric = colData.every(val => !isNaN(parseFloat(val)));
+
+    const parsedData = colData.map(val => isNumeric ? parseFloat(val) : val);
+    const missing = dataRows.length - colData.length;
+
+    const stat = {
+      name: col,
+      type: isNumeric ? "Numeric" : "Categorical",
+      missing: missing,
+      mean: isNumeric ? (parsedData.reduce((a, b) => a + b, 0) / parsedData.length).toFixed(2) : "-",
+      std: isNumeric
+        ? Math.sqrt(parsedData.map(x => (x - parsedData.reduce((a, b) => a + b, 0) / parsedData.length) ** 2).reduce((a, b) => a + b, 0) / parsedData.length).toFixed(2)
+        : "-",
+    };
+    return stat;
+  });
+
+  displayStatsTable(stats);
+}
+
+
+function displayStatsTable(stats) {
+  const table = document.getElementById('stats-table');
+  table.innerHTML = '';
+
+  const headerRow = document.createElement('tr');
+  const headers = [
+    { key: 'statsColumn' },
+    { key: 'statsType' },
+    { key: 'statsMissing' },
+    { key: 'statsMean' },
+    { key: 'statsStd' }
+  ];
+
+  headers.forEach(header => {
+    const th = document.createElement('th');
+    th.setAttribute('data-i18n', header.key);
+    th.textContent = t(header.key);
+    headerRow.appendChild(th);
+  });
+
+  table.appendChild(headerRow);
+
+  stats.forEach(stat => {
+    const row = document.createElement('tr');
+    [stat.name, stat.type, stat.missing, stat.mean, stat.std || '-'].forEach(val => {
+      const td = document.createElement('td');
+      td.textContent = val;
+      row.appendChild(td);
+    });
+    table.appendChild(row);
+  });
+}
+
+
+
+
+function buildPreview(rows) {
+  const previewTable = document.getElementById('preview-table');
+  previewTable.innerHTML = '';
+
+  const header = rows[0];
+  const numColumns = header.length;
+  const numRows = rows.length - 1;
+
+  let nanCount = 0;
+  for (let i = 1; i < rows.length; i++) {
+    nanCount += rows[i].filter(cell =>
+      cell === null || cell === undefined || cell.toString().trim() === "" || cell.toString().toLowerCase() === "nan"
+    ).length;
+  }
+
+  // Stats
+  document.getElementById('csv-rows-count').textContent = numRows;
+  document.getElementById('csv-columns-count').textContent = numColumns;
+  document.getElementById('csv-nan-count').textContent = nanCount;
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  header.forEach(col => {
+    const th = document.createElement("th");
+    th.textContent = col;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  previewTable.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (let i = 1; i < Math.min(rows.length, 6); i++) {
+    const row = rows[i];
+    const tr = document.createElement("tr");
+    row.forEach(cell => {
+      const td = document.createElement("td");
+      td.textContent = cell;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+  previewTable.appendChild(tbody);
+
+  // Mise à jour target-column
+  const targetSelect = document.getElementById("target-column");
+  targetSelect.innerHTML = "";
+  header.forEach(col => {
+    const option = document.createElement("option");
+    option.value = col;
+    option.textContent = col;
+    targetSelect.appendChild(option);
+  });
+  buildStats(rows);
+  const dropListContainer = document.getElementById("drop-columns-list");
+  dropListContainer.innerHTML = "";
+
+  header.forEach(col => {
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = col;
+    checkbox.id = `drop-${col}`;
+
+    const label = document.createElement("label");
+    label.setAttribute("for", `drop-${col}`);
+    label.textContent = col;
+    label.style.marginRight = "15px";
+
+    const container = document.createElement("div");
+    container.appendChild(checkbox);
+    container.appendChild(label);
+
+    dropListContainer.appendChild(container);
+  });
+}
 
 
 function removeCSVFile() {
@@ -186,152 +298,246 @@ function startTraining() {
   const targetColumn = document.getElementById('target-column').value;
 
   if (!file || !targetColumn) {
-    showAlert("Please select a CSV file and a target column.", 'warning');
+    showAlert(t("selectCSVAndTarget"), 'warning');
+    return;
+  }
+
+  // Colonnes cochées à supprimer
+  const checkboxes = document.querySelectorAll('#drop-columns-list input[type="checkbox"]:checked');
+  const columnsToDrop = Array.from(checkboxes).map(cb => cb.value);
+
+  if (columnsToDrop.includes(targetColumn)) {
+    showAlert(t("cannotDropTargetColumn"), 'error');
     return;
   }
 
   document.getElementById('training-spinner').style.display = "inline-block";
 
-  const formData = new FormData();
-  formData.append('csv_file', file);
-  formData.append('target_column', targetColumn);
-  formData.append('time_limit', timeLimitSeconds);
+  const ext = file.name.split('.').pop().toLowerCase();
+  const reader = new FileReader();
 
-  const includeShap = document.getElementById("shap-toggle").checked;
-  formData.append("include_shap", includeShap);
+  reader.onload = function (e) {
+    let data = [];
+    let header = [];
 
-  fetch('/train', {
-    method: 'POST',
-    body: formData
-  })
-  .then(response => response.json())
-  .then(data => {
-    if (data.error) {
-      showAlert(data.error, 'error');
+    if (ext === 'csv' || ext === 'arff') {
+      const parsed = Papa.parse(e.target.result, { header: false, skipEmptyLines: false });
+      data = parsed.data;
+    } else if (['xls', 'xlsx', 'xlsm'].includes(ext)) {
+      const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+    } else {
+      showAlert(t("unsupportedFormat"), 'warning');
+      document.getElementById('training-spinner').style.display = "none";
       return;
     }
 
-    document.getElementById('training-spinner').style.display = "none";
-    const resultsDiv = document.getElementById('training-results');
+    // Supprimer les colonnes cochées
+    header = data[0];
+    const dropIndexes = header.map((name, idx) => columnsToDrop.includes(name) ? idx : -1).filter(i => i !== -1);
+    const cleanedData = data.map(row => row.filter((_, idx) => !dropIndexes.includes(idx)));
 
-    // Début structure principale
-    resultsDiv.innerHTML = `<h2>Training Results</h2>`;
+    // Reconversion en CSV
+    const csv = Papa.unparse(cleanedData, { quotes: false });
 
-    // -------- Training Summary Section --------
-    let summaryHTML = `
-      <div class="result-section" id="training-summary-section">
-        <h3>Training Summary</h3>
+    // Préparation du fichier nettoyé à envoyer
+    const formData = new FormData();
+    const blob = new Blob([csv], { type: 'text/csv' });
+    formData.append('file', blob, `${file.name}.csv`);
+    formData.append('target_column', targetColumn);
+    formData.append('time_limit', timeLimitSeconds);
 
-        <div class="subsection">
-          <h4>General Information</h4>
-          <p><strong>Detected Task:</strong> ${data.task_type}</p>
-          <p><strong>Selected Model:</strong> ${data.best_model}</p>
-          <p><strong>Training Time:</strong> ${data.train_time.toFixed(2)} seconds</p>
-        </div>
-    `;
+    lastUsedTargetColumn = targetColumn;
+    lastCleanedCsvBlob = blob;  
 
-    const metrics = data.metrics;
-    let metricsHTML = '';
-    let plotsHTML = `
-      <div class="subsection">
-        <h4>Plots</h4>
-    `;
-
-    for (const metric in metrics) {
-      const value = metrics[metric].value;
-      const plotBase64 = metrics[metric].plot;
-      const plotHist = metrics[metric].plot_hist || null;
-      const metricLabel = metric.toUpperCase();
-      const formattedValue = value.toFixed(4);
-
-      metricsHTML += `<tr><td>${metricLabel}</td><td>${formattedValue}</td></tr>`;
-
-      if (metricLabel === "RMSE" && plotBase64 && plotHist) {
-        plotsHTML += `
-          <div class="plot-card">
-            <p><strong>${metricLabel}</strong></p>
-            <img src="data:image/png;base64,${plotBase64}" alt="${metricLabel} Plot" />
-            <img src="data:image/png;base64,${plotHist}" alt="${metricLabel} Histogram" />
-          </div>
-        `;
-      } else if (plotBase64) {
-        plotsHTML += `
-          <div class="plot-card">
-            <p><strong>${metricLabel}</strong></p>
-            <img src="data:image/png;base64,${plotBase64}" alt="${metricLabel} Plot" />
-          </div>
-        `;
+    // Envoi au serveur
+    fetch('/train', {
+      method: 'POST',
+      body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+      document.getElementById('training-spinner').style.display = "none";
+      if (data.error) {
+        showAlert(data.error, 'error');
+        return;
       }
+
+      // Appel d’une fonction de rendu des résultats
+      renderTrainingResults(data);
+    })
+    .catch(error => {
+      document.getElementById('training-spinner').style.display = "none";
+      showAlert(t("trainingError"), 'error');
+    });
+  };
+
+  if (ext === 'csv' || ext === 'arff') {
+    reader.readAsText(file);
+  } else {
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+
+function renderTrainingResults(data) {
+  lastTrainedModelPath = data.model_path;
+  const resultsDiv = document.getElementById('training-results');
+  resultsDiv.innerHTML = `<h2 data-i18n="trainingResults">${t("trainingResults")}</h2>`;
+
+  // -------- Training Summary Section --------
+  let summaryHTML = `
+    <div class="result-section" id="training-summary-section">
+      <h3 data-i18n="trainingSummary">${t("trainingSummary")}</h3>
+
+      <div class="subsection">
+        <h4 data-i18n="generalInfo">${t("generalInfo")}</h4>
+        <p><strong data-i18n="detectedTask">${t("detectedTask")}</strong> ${data.task_type}</p>
+        <p><strong data-i18n="selectedModel">${t("selectedModel")}</strong> ${data.best_model}</p>
+        <p><strong data-i18n="trainingTime">${t("trainingTime")}</strong> ${data.train_time.toFixed(2)} seconds</p>
+      </div>
+  `;
+
+  const metrics = data.metrics;
+  let metricsHTML = '';
+  let plotsHTML = `
+      <div class="subsection">
+        <h4 data-i18n="plots">${t("plots")}</h4>
+  `;
+
+  for (const metric in metrics) {
+    const value = metrics[metric].value;
+    const plotBase64 = metrics[metric].plot;
+    const plotHist = metrics[metric].plot_hist || null;
+    const metricLabel = metric.toUpperCase();
+    const formattedValue = value.toFixed(4);
+
+    metricsHTML += `<tr><td>${metricLabel}</td><td>${formattedValue}</td></tr>`;
+
+    if (metricLabel === "RMSE" && plotBase64 && plotHist) {
+      plotsHTML += `
+        <div class="plot-card">
+          <p><strong>${metricLabel}</strong></p>
+          <img src="data:image/png;base64,${plotBase64}" alt="${metricLabel} Plot" />
+          <img src="data:image/png;base64,${plotHist}" alt="${metricLabel} Histogram" />
+        </div>
+      `;
+    } else if (plotBase64) {
+      plotsHTML += `
+        <div class="plot-card">
+          <p><strong>${metricLabel}</strong></p>
+          <img src="data:image/png;base64,${plotBase64}" alt="${metricLabel} Plot" />
+        </div>
+      `;
     }
+  }
 
-    const metricSectionTitle = data.task_type === "regression" ? "Regression Metrics" : "Classification Metrics";
+  const metricSectionTitle = data.task_type === "regression" ? "Regression Metrics" : "Classification Metrics";
 
-    summaryHTML += `
+  summaryHTML += `
       <div class="subsection">
         <h4>${metricSectionTitle}</h4>
         <table class="metrics-table">
-          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <thead><tr><th>${t("metric")}</th><th>${t("value")}</th></tr></thead>
           <tbody>${metricsHTML}</tbody>
         </table>
       </div>
-    `;
+  `;
 
-    plotsHTML += `</div>`; // Fin plots
-    summaryHTML += plotsHTML + `</div>`; // Fin Training Summary
-    resultsDiv.innerHTML += summaryHTML;
+  plotsHTML += `</div>`; // Fin plots
+  summaryHTML += plotsHTML + `</div>`; // Fin Training Summary
+  resultsDiv.innerHTML += summaryHTML;
 
-    // -------- Model Explainability Section --------
-    let explainabilityHTML = `
-      <div class="result-section" id="model-explainability-section">
-        <h3>Model Explainability</h3>
-    `;
+  // -------- Model Explainability Section --------
+  let explainabilityHTML = `
+    <div class="result-section" id="model-explainability-section">
+      <h3 data-i18n="modelExplainability">${t("modelExplainability")}</h3>
+  `;
 
-    if (data.feature_importance_plot) {
-      explainabilityHTML += `
-        <div class="plot-card">
-          <h4>Feature Importance</h4>
-          <img src="data:image/png;base64,${data.feature_importance_plot}" alt="Feature Importance Plot" />
-        </div>
-      `;
-    }
-
-    if (data.shap_plots) {
-      explainabilityHTML += `
-        <div class="plot-card">
-          <h4>SHAP Summary Plot</h4>
-          <img src="data:image/png;base64,${data.shap_plots}" alt="SHAP Summary" />
-        </div>
-      `;
-    }
-
-    explainabilityHTML += `</div>`; // Fin Model Explainability
-    resultsDiv.innerHTML += explainabilityHTML;
-
-    // -------- Download Buttons --------
-    resultsDiv.innerHTML += `
-      <div class="download-buttons-container">
-        <a id="download-link" href="#" class="download-button download-model" download>
-          🧠 Download Trained Model (.zip)
-        </a>
-        <button class="download-button download-plots" onclick="downloadAllPlots()">
-          📊 Download All Plots (.zip)
-        </button>
+  if (data.feature_importance_plot) {
+    explainabilityHTML += `
+      <div class="plot-card">
+        <h4 data-i18n="featureImportance">${t("featureImportance")}</h4>
+        <img src="data:image/png;base64,${data.feature_importance_plot}" alt="Feature Importance Plot" />
       </div>
     `;
+  }
 
-    if (data.download_url) {
-      document.getElementById('download-link').href = data.download_url;
-    }
+  explainabilityHTML += `
+  <div class="button-container">
+    <button id="generate-shap-button" onclick="generateShapPlot()" class="generate-shap-button" data-i18n="generateShap">
+      ${t("generateShap")}
+    </button>
+    <div id="training-spinner-shap" class="spinner" style="display: none;"></div>
+  </div>
+  <div class="plot-card" id="shap-plots"></div>`;
 
-    resultsDiv.style.display = 'block';
-  })
+  explainabilityHTML += `</div>`; // Fin Model Explainability
+  resultsDiv.innerHTML += explainabilityHTML;
 
-  .catch(error => {
-    document.getElementById('training-spinner').style.display = "none";
-    console.error("Error during training:", error);
-    showAlert("An error occurred during training.", 'error');
-  });
+  // -------- Download Buttons --------
+  resultsDiv.innerHTML += `
+    <div class="download-buttons-container">
+      <a id="download-link" href="#" data-i18n="downloadModel" class="download-button download-model" download>
+        🧠 ${t("downloadModel")}
+      </a>
+      <button class="download-button download-plots" onclick="downloadAllPlots()" data-i18n="downloadPlots">
+        📊 ${t("downloadPlots")}
+      </button>
+    </div>
+  `;
+
+  if (data.download_url) {
+    document.getElementById('download-link').href = data.download_url;
+  }
+
+  resultsDiv.style.display = 'block';
 }
+
+async function generateShapPlot() {
+  if (!lastTrainedModelPath || !lastCleanedCsvBlob || !lastUsedTargetColumn) {
+    showAlert(t("missingSHAPInfo"), 'error');
+    return;
+  }
+  document.getElementById('training-spinner-shap').style.display = "inline-block";
+
+  const formData = new FormData();
+  formData.append("model_path", lastTrainedModelPath);
+  formData.append("target_column", lastUsedTargetColumn);
+  formData.append("dataset", lastCleanedCsvBlob, "cleaned_data.csv");
+
+  try {
+    const response = await fetch("/generate_shap_plot", {
+      method: "POST",
+      body: formData
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(error);
+    }
+    button = document.getElementById("generate-shap-button");
+    button.style.display = "none";
+    document.getElementById('training-spinner-shap').style.display = "none";
+
+
+    const result = await response.json();
+    const shapImage = result.shap_summary_plot;
+
+    const plotCard = document.getElementById("shap-plots");
+    plotCard.innerHTML = `
+      <h4 data-i18n="shapSummary">${t("shapSummary")}</h4>
+      <img src="data:image/png;base64,${shapImage}" alt="SHAP Summary" />
+    `;
+  } catch (error) {
+    document.getElementById('training-spinner-shap').style.display = "none";
+    console.error("Erreur SHAP:", error);
+    showAlert(t("shapGenerationError") + ": " + error.message, "error");
+  }
+}
+
 
 function downloadAllPlots() {
   const zip = new JSZip();
@@ -369,7 +575,8 @@ function downloadAllPlots() {
 
 document.getElementById('predict-csv').addEventListener('change', function () {
   const file = this.files[0];
-  if (file && file.name.endsWith('.csv')) {
+  const acceptedExtensions = ['.csv', '.xls', '.xlsx', '.xlsm', '.arff'];
+  if (file && acceptedExtensions.some(ext => file.name.endsWith(ext))) {
     this.style.display = 'none';
     document.getElementById('predict-csv-label').style.display = 'none';
     document.getElementById('predict-file-name').textContent = file.name;
@@ -378,7 +585,7 @@ document.getElementById('predict-csv').addEventListener('change', function () {
     // Affiche l'étape suivante
     document.getElementById('step-2-model').style.display = 'block';
   } else {
-    showAlert("Please select a CSV file", 'warning');
+    showAlert(t("pleaseSelectCFile"), 'warning');
     this.value = '';
   }
 });
@@ -407,7 +614,7 @@ document.getElementById('predict-model-zip').addEventListener('change', function
     // Affiche le bouton prédire
     document.getElementById('step-3-predict').style.display = 'block';
   } else {
-    showAlert("Please select a ZIP file", 'warning');
+    showAlert(t("pleaseSelectZIP"), 'warning');
     this.value = '';
   }
 });
@@ -430,12 +637,12 @@ function runPrediction() {
   const model = modelInput.files[0];
 
   if (!dataset || !model) {
-    showAlert("Please select a dataset (.csv) and a model (.zip)", 'warning');
+    showAlert(t("selectDatasetAndModel"), 'warning');
     return;
   }
 
   const formData = new FormData();
-  formData.append('csv_dataset', dataset);
+  formData.append('dataset', dataset);
   formData.append('zip_model', model);
 
   fetch('/predict', {
@@ -456,9 +663,9 @@ function runPrediction() {
 
       const predictionResults = document.getElementById('prediction-results');
       predictionResults.innerHTML = `
-        <h2>Prediction Results</h2>
+        <h2 data-i18n="predictionResults">${t("predictionResults")}</h2>
         <div class="result-section">
-          <h3>Preview</h3>
+          <h3 data-i18n="preview">${t("preview")}</h3>
           <div id="prediction-table-container"></div>
         </div>
       `;
@@ -497,14 +704,14 @@ function runPrediction() {
       if (data.plots && Object.keys(data.plots).length > 0) {
         let plotsHTML = `
           <div class="result-section">
-            <h3>Prediction Plots</h3>
+            <h3 data-i18n="predictionPlots">${t("predictionPlots")}</h3>
         `;
 
         for (const [title, base64] of Object.entries(data.plots)) {
           const formattedTitle = title.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
           plotsHTML += `
             <div class="plot-card">
-              <p><strong>${formattedTitle}</strong></p>
+              <p><strong data-i18n="formattedTitle">${formattedTitle}</strong></p>
               <img src="data:image/png;base64,${base64}" alt="${formattedTitle}" />
             </div>
           `;
@@ -518,11 +725,11 @@ function runPrediction() {
       const downloadUrl = data.download_url || '#';
       predictionResults.innerHTML += `
         <div class="download-buttons-container">
-          <a id="prediction-download-link" href="${downloadUrl}" class="download-button download-model" download>
-            📥 Download predictions (.csv)
+          <a id="prediction-download-link" href="${downloadUrl}" data-i18n="downloadPredictions" class="download-button download-model" download>
+            📥 ${t("downloadPredictions")}
           </a>
-          <button class="download-button download-plots" onclick="downloadAllPredictionPlots()">
-            📊 Download Plots (.zip)
+          <button class="download-button download-plots" data-i18n="downloadPredictionPlots" onclick="downloadAllPredictionPlots()">
+            📊 ${t("downloadPredictionPlots")}
           </button>
         </div>
       `;
@@ -531,7 +738,7 @@ function runPrediction() {
     })
     .catch(error => {
       console.error(error);
-      showAlert("An error has occurred during prediction.", 'error');
+      showAlert(t("predictionError"), 'error');
     });
 }
 
@@ -561,10 +768,6 @@ function downloadAllPredictionPlots() {
     document.body.removeChild(link);
   });
 }
-
-
-
-
 
 function sendChat() {
   const input = document.getElementById('chat-input');

@@ -128,12 +128,18 @@ def generate_metric_plot(metric_name, y_true=None, y_pred=None, y_proba=None, cl
     plt.close()
     return image_base64
 
+# if include_shap :
+#     # SHAP values
+#     X = df.drop(columns=[target_column])
+#     explainer = shap.Explainer(model.predict, X)
+#     shap_values = explainer(X)
 
+#     # SHAP plots en image statique
+#     shap_summary_plot = shap_plot_to_base64(shap.summary_plot, shap_values, X)
 
-def train_model(csv_path, target_column, time_limit, save_path, include_shap):
+def train_model(df, target_column, time_limit, save_path, include_shap):
     try:
         save_path = os.path.abspath(save_path)
-        df = TabularDataset(csv_path)
 
         if df[target_column].isnull().any():
             raise ValueError(f"Target column '{target_column}' contains missing values.")
@@ -143,15 +149,6 @@ def train_model(csv_path, target_column, time_limit, save_path, include_shap):
         model = predictor._trainer.load_model(predictor._trainer.model_best)
 
         shap_summary_plot = None
-
-        if (include_shap) :
-            # SHAP values
-            X = df.drop(columns=[target_column])
-            explainer = shap.Explainer(model.predict, X)
-            shap_values = explainer(X)
-
-            # SHAP plots en image statique
-            shap_summary_plot = shap_plot_to_base64(shap.summary_plot, shap_values, X)
 
         feature_importance_df = predictor.feature_importance(df)
         feature_importance_plot = generate_feature_importance_plot(feature_importance_df)
@@ -218,15 +215,46 @@ def train_model(csv_path, target_column, time_limit, save_path, include_shap):
             'score_metric': score_metric,
             'metrics': perf_data,
             'feature_importance_plot': feature_importance_plot,
+            'model_path': save_path,
         }
-
-        if include_shap : 
-            results['shap_plots'] = shap_summary_plot
 
         return results
     
     except Exception as e:
         raise RuntimeError(f"Training error: {str(e)}")
+    
+def generate_shap_plot(model_path, df, target_column):
+
+    try:
+        # Chargement du modèle
+        predictor = TabularPredictor.load(model_path)
+        model = predictor._trainer.load_model(predictor._trainer.model_best)
+
+        # Vérification de la présence de la colonne cible
+        if target_column not in df.columns:
+            raise ValueError(f"La colonne cible '{target_column}' est manquante dans les données.")
+
+        # Construction du jeu de données X (sans la target)
+        X = df.drop(columns=[target_column])
+
+        # Création de l'explainer SHAP — important d'utiliser .predict_proba si c'est de la classification
+        if predictor.problem_type in ["binary", "multiclass"]:
+            explainer = shap.Explainer(model.predict_proba, X)
+        else:
+            explainer = shap.Explainer(model.predict, X)
+
+        shap_values = explainer(X)
+
+        # Génération de l'image encodée en base64
+        shap_summary_plot = shap_plot_to_base64(shap.summary_plot, shap_values, X)
+
+        return {
+            'shap_summary_plot': shap_summary_plot
+        }
+
+    except Exception as e:
+        raise RuntimeError(f"Erreur lors de la génération du graphique SHAP : {str(e)}")
+
 
 
 def plot_regression_distribution(y_pred):
@@ -291,8 +319,21 @@ def plot_prediction_confidence(y_proba_df):
 
 def predict_model(csv_path, model_path):
     try:
+
         predictor = TabularPredictor.load(model_path)
-        df = TabularDataset(csv_path)
+
+        ext = os.path.splitext(csv_path)[1].lower()
+        if ext == '.csv':
+            df = pd.read_csv(csv_path)
+        elif ext in ['.xls', '.xlsx', '.xlsm']:
+            df = pd.read_excel(csv_path)
+        elif ext == '.arff':
+            import arff
+            with open(csv_path, 'r') as f:
+                arff_data = arff.load(f)
+            df = pd.DataFrame(arff_data['data'], columns=[a[0] for a in arff_data['attributes']])
+        else:
+            raise ValueError(f"Unsupported file format: {ext}")
 
         if predictor.label in df.columns:
             df = df.drop(columns=[predictor.label])
