@@ -1,6 +1,6 @@
 from flask import Flask, request, render_template, jsonify, send_file
 import os
-from model_utils import train_model, predict_model, generate_shap_plot
+from model_utils import train_model, predict_model, generate_shap_plot, UserError
 from datetime import datetime
 import shutil
 import zipfile
@@ -36,7 +36,7 @@ def train():
         time_limit = int(request.form.get('time_limit', 60))
 
         if time_limit < 10 or time_limit > 600:
-            return jsonify({"error": "Time limit must be between 10 and 600 seconds."}), 400
+            raise UserError("error_time_limit_range")
 
         path = os.path.join(UPLOAD_FOLDER, secure_filename(file.filename))
         file.save(path)
@@ -50,30 +50,32 @@ def train():
             from scipy.io import arff
             data, meta = arff.loadarff(path)
             df = pd.DataFrame(data)
-            # Convert byte columns to string if necessary
             for col in df.select_dtypes([object]).columns:
                 df[col] = df[col].apply(lambda x: x.decode('utf-8') if isinstance(x, bytes) else x)
         else:
-            return jsonify({"error": "Unsupported file format."}), 400
-        
+            raise UserError("error_unsupported_file_format")
+
+        if target_column not in df.columns:
+            raise UserError("error_target_not_in_columns")
+
         if df[target_column].isnull().all():
-            return jsonify({"error": f"Target column '{target_column}' contains only missing values."}), 400
+            raise UserError("error_target_all_missing")
 
         training_folder, training_id, zip_filename = create_training_folder(file.filename)
-
         include_shap = request.form.get("include_shap", "false").lower() == "true"
 
         metrics = train_model(df, target_column, time_limit, training_folder, include_shap)
 
-        # Créer le fichier zip avec le bon nom
         zip_path = os.path.join(MODEL_FOLDER, zip_filename)
         shutil.make_archive(base_name=zip_path.replace('.zip', ''), format='zip', root_dir=training_folder)
 
         metrics['download_url'] = f"/download_model/{zip_filename}"
         return jsonify(metrics)
 
+    except UserError as ue:
+        return jsonify({"error": ue.message_key}), ue.status_code
     except Exception as e:
-        return jsonify({"error": f"Training failed: {str(e)}"}), 500
+        return jsonify({"error": "error_training_failed"}), 500
 
 @app.route('/download_model/<zip_filename>')
 def download_model(zip_filename):
@@ -85,32 +87,28 @@ def download_model(zip_filename):
 @app.route('/generate_shap_plot', methods=['POST'])
 def shap_plot():
     try:
-        # Récupération du fichier CSV envoyé
         if 'dataset' not in request.files:
-            return jsonify({'error': 'Aucun fichier de dataset reçu.'}), 400
+            raise UserError("error_no_dataset")
 
         file = request.files['dataset']
         df = pd.read_csv(file)
 
-        # Récupération des autres données du formulaire
         model_path = request.form.get('model_path')
         target_column = request.form.get('target_column')
 
         if not model_path or not os.path.exists(model_path):
-            return jsonify({'error': "Chemin du modèle invalide ou manquant."}), 400
+            raise UserError("error_invalid_model_path")
 
         if not target_column:
-            return jsonify({'error': "Colonne cible non spécifiée."}), 400
+            raise UserError("error_missing_target_column")
 
-        # Appel de la fonction de génération SHAP
         result = generate_shap_plot(model_path, df, target_column)
-
         return jsonify(result)
 
+    except UserError as ue:
+        return jsonify({"error": ue.message_key}), ue.status_code
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
+        return jsonify({"error": "error_shap_failed"}), 500
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -119,7 +117,7 @@ def predict():
         model_zip = request.files.get('zip_model')
 
         if not dataset_file or not model_zip:
-            return jsonify({"error": "CSV and/or model file missing."}), 400
+            raise UserError("error_missing_dataset_or_model")
 
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         dataset_name = os.path.splitext(secure_filename(dataset_file.filename))[0]
@@ -127,11 +125,10 @@ def predict():
 
         file_ext = os.path.splitext(dataset_file.filename)[1].lower()
         if file_ext not in ['.csv', '.xls', '.xlsx', '.xlsm', '.arff']:
-            return jsonify({"error": f"Unsupported file extension: {file_ext}"}), 400
+            raise UserError("error_unsupported_file_format")
 
         original_filename = f"{identifier}{file_ext}"
         file_path = os.path.join(UPLOAD_FOLDER, original_filename)
-
         dataset_file.save(file_path)
 
         decompression_folder = os.path.join(DECOMPRESSION_FOLDER, f"predict_{identifier}")
@@ -144,11 +141,11 @@ def predict():
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(decompression_folder)
         except zipfile.BadZipFile:
-            return jsonify({"error": "Uploaded model file is not a valid ZIP archive."}), 400
+            raise UserError("error_invalid_zip")
 
         result = predict_model(file_path, decompression_folder)
-        predictions = result['predictions']  
-        plots = result['plots']             
+        predictions = result['predictions']
+        plots = result['plots']
 
         pred_filename = f"{identifier}_predictions.csv"
         pred_path = os.path.join(PREDICTION_FOLDER, pred_filename)
@@ -160,12 +157,10 @@ def predict():
             "plots": plots
         })
 
-    except ValueError as ve:
-        return jsonify({"error": str(ve)}), 400
+    except UserError as ue:
+        return jsonify({"error": ue.message_key}), ue.status_code
     except Exception as e:
-        return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
-
-
+        return jsonify({"error": "error_prediction_failed"}), 500
 
 @app.route('/download_prediction/<filename>')
 def download_prediction(filename):
@@ -173,7 +168,6 @@ def download_prediction(filename):
     if not os.path.exists(filepath):
         return "File not found", 404
     return send_file(filepath, as_attachment=True)
-
 
 if __name__ == '__main__':
     app.run(debug=True)

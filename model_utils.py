@@ -17,6 +17,12 @@ from sklearn.metrics import (
     mean_squared_error, r2_score, roc_curve, confusion_matrix, ConfusionMatrixDisplay
 )
 
+class UserError(Exception):
+    def __init__(self, message_key, status_code=400):
+        super().__init__(message_key)
+        self.message_key = message_key
+        self.status_code = status_code
+
 def generate_force_plot_base64(shap_values, features):
     plt.figure(figsize=(10, 1))  # Ajuste la hauteur selon le besoin
     shap.plots.force(shap_values, matplotlib=True)
@@ -142,7 +148,7 @@ def train_model(df, target_column, time_limit, save_path, include_shap):
         save_path = os.path.abspath(save_path)
 
         if df[target_column].isnull().any():
-            raise ValueError(f"Target column '{target_column}' contains missing values.")
+            raise UserError("error_missing_target_values")
 
         predictor = TabularPredictor(label=target_column, path=save_path).fit(df, time_limit=time_limit)
 
@@ -210,34 +216,33 @@ def train_model(df, target_column, time_limit, save_path, include_shap):
 
         results = {
             'best_model': best_model,
-            'train_time': float(leaderboard.loc[leaderboard['model'] == best_model, 'fit_time'].values[0]),
+            'train_time': float(leaderboard['fit_time'].sum()),
             'task_type': task_type,
             'score_metric': score_metric,
             'metrics': perf_data,
             'feature_importance_plot': feature_importance_plot,
             'model_path': save_path,
+            'leaderboard': leaderboard.to_dict(orient='records')
         }
 
         return results
-    
-    except Exception as e:
-        raise RuntimeError(f"Training error: {str(e)}")
+
+    except UserError:
+        raise
+    except Exception:
+        raise UserError("error_unexpected_training")
+
     
 def generate_shap_plot(model_path, df, target_column):
-
     try:
-        # Chargement du modèle
         predictor = TabularPredictor.load(model_path)
         model = predictor._trainer.load_model(predictor._trainer.model_best)
 
-        # Vérification de la présence de la colonne cible
         if target_column not in df.columns:
-            raise ValueError(f"La colonne cible '{target_column}' est manquante dans les données.")
+            raise UserError("error_missing_target_column")
 
-        # Construction du jeu de données X (sans la target)
         X = df.drop(columns=[target_column])
 
-        # Création de l'explainer SHAP — important d'utiliser .predict_proba si c'est de la classification
         if predictor.problem_type in ["binary", "multiclass"]:
             explainer = shap.Explainer(model.predict_proba, X)
         else:
@@ -245,15 +250,16 @@ def generate_shap_plot(model_path, df, target_column):
 
         shap_values = explainer(X)
 
-        # Génération de l'image encodée en base64
         shap_summary_plot = shap_plot_to_base64(shap.summary_plot, shap_values, X)
 
         return {
             'shap_summary_plot': shap_summary_plot
         }
 
-    except Exception as e:
-        raise RuntimeError(f"Erreur lors de la génération du graphique SHAP : {str(e)}")
+    except UserError:
+        raise
+    except Exception:
+        raise UserError("error_shap")
 
 
 
@@ -319,7 +325,6 @@ def plot_prediction_confidence(y_proba_df):
 
 def predict_model(csv_path, model_path):
     try:
-
         predictor = TabularPredictor.load(model_path)
 
         ext = os.path.splitext(csv_path)[1].lower()
@@ -333,7 +338,7 @@ def predict_model(csv_path, model_path):
                 arff_data = arff.load(f)
             df = pd.DataFrame(arff_data['data'], columns=[a[0] for a in arff_data['attributes']])
         else:
-            raise ValueError(f"Unsupported file format: {ext}")
+            raise UserError("error_unsupported_file_format")
 
         if predictor.label in df.columns:
             df = df.drop(columns=[predictor.label])
@@ -343,17 +348,11 @@ def predict_model(csv_path, model_path):
         extra_cols = set(df.columns) - set(expected_cols)
 
         if missing_cols:
-            raise ValueError(
-                f"Your file does not contain the columns expected by the model: {', '.join(missing_cols)}."
-                " Please ensure that the dataset contains exactly the same columns as those used during training."
-            )
-        if extra_cols:
-            raise ValueError(
-                f"Your file contains columns not recognized by the template: {', '.join(extra_cols)}."
-                " Please keep only columns used during training."
-            )
+            raise UserError("error_missing_columns")
 
-        # Générer les prédictions
+        if extra_cols:
+            raise UserError("error_extra_columns")
+
         predictions = predictor.predict(df)
         task_type = predictor.problem_type
         output_data = {
@@ -361,7 +360,6 @@ def predict_model(csv_path, model_path):
             'plots': {}
         }
 
-        # Génération des visualisations selon le type de tâche
         if task_type == 'regression':
             output_data['plots'] = {
                 'distribution': plot_regression_distribution(predictions),
@@ -383,5 +381,7 @@ def predict_model(csv_path, model_path):
 
         return output_data
 
-    except Exception as e:
-        raise RuntimeError(str(e))
+    except UserError:
+        raise
+    except Exception:
+        raise UserError("error_unexpected_prediction")

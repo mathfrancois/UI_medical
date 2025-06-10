@@ -361,7 +361,7 @@ function startTraining() {
     .then(data => {
       document.getElementById('training-spinner').style.display = "none";
       if (data.error) {
-        showAlert(data.error, 'error');
+        showAlert(t(data.error), 'error');
         return;
       }
 
@@ -445,6 +445,37 @@ function renderTrainingResults(data) {
         </table>
       </div>
   `;
+
+    if (data.leaderboard && Array.isArray(data.leaderboard)) {
+    const leaderboardHTML = `
+      <div class="result-section" id="leaderboard-section">
+        <h3 data-i18n="leaderboard">${t("leaderboard")}</h3>
+        <div class="leaderboard-table-container">
+          <table class="metrics-table">
+            <thead>
+              <tr>
+                <th data-i18n="model">${t("model")}</th>
+                <th data-i18n="scoreVal">${t("scoreVal")}</th>
+                <th data-i18n="fitTime">${t("fitTime")}</th>
+                <th data-i18n="predictTime">${t("predictTime")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.leaderboard.map(row => `
+                <tr>
+                  <td>${row.model}</td>
+                  <td>${row.score_val.toFixed(4)}</td>
+                  <td>${row.fit_time.toFixed(2)}s</td>
+                  <td>${row.pred_time_val.toFixed(2)}s</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    summaryHTML += leaderboardHTML;
+  }
 
   plotsHTML += `</div>`; // Fin plots
   summaryHTML += plotsHTML + `</div>`; // Fin Training Summary
@@ -652,7 +683,7 @@ function runPrediction() {
     .then(response => response.json())
     .then(data => {
       if (data.error) {
-        showAlert(data.error, 'error');
+        showAlert(t(data.error), 'error');
         return;
       }
 
@@ -771,21 +802,44 @@ function downloadAllPredictionPlots() {
 
 function sendChat() {
   const input = document.getElementById('chat-input');
-  const message = input.value;
-  if (!message) return;
-  const box = document.getElementById('chat-box');
-  const p = document.createElement('p');
-  p.textContent = message;
-  box.appendChild(p);
-  input.value = "";
+  const message = input.value.trim();
+  const chatBox = document.getElementById('chat-box');
 
-  // Simuler une réponse
-  const reply = document.createElement('p');
-  reply.textContent = "Tip: You can choose any column to predict. The model will learn from the others.";
-  reply.style.fontStyle = "italic";
-  box.appendChild(reply);
-  box.scrollTop = box.scrollHeight;
+  if (message) {
+    const msgElement = document.createElement('div');
+    msgElement.className = 'chat-message user';
+    msgElement.textContent = message;
+
+    chatBox.appendChild(msgElement);
+    input.value = '';
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
 }
+
+document.getElementById('chat-input').addEventListener('keydown', function (event) {
+  // Si on appuie sur Entrée sans Maj
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault(); // empêche le saut de ligne
+    sendChat(); 
+  }
+});
+
+function toggleChatSidebar() {
+  const sidebar = document.getElementById('chat-sidebar');
+  const toggleButton = document.getElementById('toggle-chat-btn');
+  const wrapper = document.querySelector('.page-wrapper');
+
+  const isCollapsed = sidebar.classList.toggle('collapsed');
+
+  if (isCollapsed) {
+    toggleButton.classList.remove('hidden');
+    wrapper.classList.remove('chat-open'); 
+  } else {
+    toggleButton.classList.add('hidden');
+    wrapper.classList.add('chat-open'); 
+  }
+}
+
 
 function showAlert(message, type = 'error', duration = 10000) {
   const alertBox = document.getElementById('custom-alert');
