@@ -88,7 +88,9 @@ const translations = {
     error_missing_target_column: "The target column was not provided.",
     error_shap: "SHAP plot generation failed.",
     error_unexpected_training: "An unexpected error occurred during training.",
-    error_unexpected_prediction: "An unexpected error occurred during prediction."
+    error_unexpected_prediction: "An unexpected error occurred during prediction.",
+    error_empty_message: "Please enter a message.",
+    error_chat : "An error occurred during the chat."
   },
   fr: {
     title: "Interface AutoML Médicale",
@@ -179,7 +181,9 @@ const translations = {
     error_missing_target_column: "La colonne cible n'a pas été fournie.",
     error_shap: "La génération du graphique SHAP a échoué.",
     error_unexpected_training: "Une erreur inattendue est survenue pendant l'entraînement.",
-    error_unexpected_prediction: "Une erreur inattendue est survenue pendant la prédiction."
+    error_unexpected_prediction: "Une erreur inattendue est survenue pendant la prédiction.",
+    error_empty_message: "Veuillez entrer un message.",
+    error_chat: "Une erreur est survenue lors de la conversation."
   },
   es: {
     title: "Interfaz AutoML Médica",
@@ -271,6 +275,8 @@ const translations = {
     error_missing_target_column: "No se proporcionó la columna objetivo.",
     error_shap: "Falló la generación del gráfico SHAP.",
     error_unexpected_training: "Ocurrió un error inesperado durante el entrenamiento.",
-    error_unexpected_prediction: "Ocurrió un error inesperado durante la predicción."
+    error_unexpected_prediction: "Ocurrió un error inesperado durante la predicción.",
+    error_empty_message: "Por favor ingrese un mensaje.",
+    error_chat: "Ocurrieron errores durante la conversación."
   }
 };

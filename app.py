@@ -6,6 +6,10 @@ import shutil
 import zipfile
 from werkzeug.utils import secure_filename
 import pandas as pd
+from groq import Groq
+from dotenv import load_dotenv
+
+load_dotenv()  
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
@@ -14,6 +18,8 @@ DECOMPRESSION_FOLDER = 'decompression'
 PREDICTION_FOLDER = 'prediction'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(MODEL_FOLDER, exist_ok=True)
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # ou fixe-la directement (non recommandé en clair)
 
 def create_training_folder(dataset_filename, base_dir=MODEL_FOLDER):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -168,6 +174,68 @@ def download_prediction(filename):
     if not os.path.exists(filepath):
         return "File not found", 404
     return send_file(filepath, as_attachment=True)
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    try:
+        user_input = request.json.get('message', '')
+        summary = request.json.get('summary', None)
+        lang = request.json.get('lang', 'en')
+
+        if not user_input:
+            return jsonify({"error": "error_empty_message"}), 400
+        
+        lang_prompts = {
+            "en": "Please respond in English.",
+            "fr": "Merci de répondre en français.",
+            "es": "Por favor responde en español."
+        }
+
+        lang_prompt = lang_prompts.get(lang, lang_prompts["en"])
+
+        system_prompt = f"""
+        {lang_prompt}
+        Tu es un assistant virtuel spécialisé en autoML, dédié à des professionnels médicaux non experts en machine learning.
+        Tu aides à comprendre comment utiliser une interface qui permet d'entraîner des modèles sur des données médicales, choisir la colonne cible,
+        paramétrer le temps d'entraînement, supprimer des colonnes du dataset avant entraînement, visualiser les résultats (métriques, matrices de confusion, courbes ROC, graphiques SHAP),
+        et prédire sur de nouvelles données.
+        Tu expliques les concepts simplement, sans jargon technique, et guides l'utilisateur sur comment améliorer son dataset, comprendre ses modèles et interpréter les résultats.
+
+        Exemples de questions :
+        - Qu’est-ce qu’une matrice de confusion et comment l’interpréter ?
+        - Que signifie le graphique SHAP ?
+        - Comment puis-je améliorer mon dataset pour avoir un meilleur modèle ?
+        - Que faire si mon modèle a un score de précision faible ?
+        """
+
+        messages = [{"role": "system", "content": system_prompt}]
+
+        if summary:
+            messages.append({
+                "role": "user",
+                "content": f"Voici le résumé des résultats de l'entraînement :\n{summary}"
+            })
+
+        messages.append({"role": "user", "content": user_input})
+
+        client = Groq(api_key=GROQ_API_KEY)
+        completion = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=messages,
+            temperature=0.7,
+            max_completion_tokens=1024,
+            top_p=1,
+            stream=False,
+            stop=None,
+        )
+
+        response = completion.choices[0].message.content
+        return jsonify({"response": response})
+
+    except Exception as e:
+        return jsonify({"error": "error_chat"}), 500
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)

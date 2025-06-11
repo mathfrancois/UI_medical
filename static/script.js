@@ -1,6 +1,7 @@
 let lastTrainedModelPath = null;
 let lastUsedTargetColumn = null;
 let lastCleanedCsvBlob = null;
+let summaryResults = null;
 
 window.addEventListener("DOMContentLoaded", () => {
   const savedLang = localStorage.getItem("selectedLanguage") || "en";
@@ -384,6 +385,7 @@ function startTraining() {
 
 function renderTrainingResults(data) {
   lastTrainedModelPath = data.model_path;
+  summaryResults = data.summary_LLM;
   const resultsDiv = document.getElementById('training-results');
   resultsDiv.innerHTML = `<h2 data-i18n="trainingResults">${t("trainingResults")}</h2>`;
 
@@ -768,7 +770,6 @@ function runPrediction() {
       predictionResults.style.display = 'block';
     })
     .catch(error => {
-      console.error(error);
       showAlert(t("predictionError"), 'error');
     });
 }
@@ -800,21 +801,69 @@ function downloadAllPredictionPlots() {
   });
 }
 
-function sendChat() {
+async function sendChat() {
   const input = document.getElementById('chat-input');
-  const message = input.value.trim();
+  const sendButton = document.querySelector('#chat-footer button');
   const chatBox = document.getElementById('chat-box');
+  const lang = localStorage.getItem("selectedLanguage") || "en";
+  const message = input.value.trim();
 
-  if (message) {
-    const msgElement = document.createElement('div');
-    msgElement.className = 'chat-message user';
-    msgElement.textContent = message;
+  if (!message) return;
 
-    chatBox.appendChild(msgElement);
-    input.value = '';
+  input.disabled = true;
+  sendButton.disabled = true;
+
+  const userMsg = document.createElement('div');
+  userMsg.className = 'chat-message user';
+  userMsg.textContent = message;
+  chatBox.appendChild(userMsg);
+  chatBox.scrollTop = chatBox.scrollHeight;
+  input.value = '';
+
+  try {
+    const payload = { message };
+    if (summaryResults) {
+      payload.summary = summaryResults;
+    }
+    payload.lang = lang;
+
+    const response = await fetch('/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      showAlert(t(errorData.error || 'error_unknown'), 'error');
+      return;
+    }
+
+    const data = await response.json();
+    const aiReply = data.response;
+
+    const aiMsg = document.createElement('div');
+    aiMsg.className = 'chat-message ai';
+    aiMsg.innerHTML = marked.parse(aiReply);
+    chatBox.appendChild(aiMsg);
     chatBox.scrollTop = chatBox.scrollHeight;
+
+  } catch (error) {
+    const errorMsg = document.createElement('div');
+    errorMsg.className = 'chat-message ai';
+    errorMsg.textContent = t('error_chat', 'error');
+    chatBox.appendChild(errorMsg);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  } finally {
+    input.disabled = false;
+    sendButton.disabled = false;
+    input.focus();
   }
 }
+
+
 
 document.getElementById('chat-input').addEventListener('keydown', function (event) {
   // Si on appuie sur Entrée sans Maj
