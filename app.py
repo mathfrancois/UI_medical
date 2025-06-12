@@ -122,6 +122,7 @@ def train():
 
         if target_column not in df.columns:
             raise UserError("error_target_not_in_columns")
+        
         if df[target_column].isnull().all():
             raise UserError("error_target_all_missing")
 
@@ -254,6 +255,7 @@ def chat():
         summary = request.json.get('summary', None)
         lang = request.json.get('lang', 'en')
         dataset = request.json.get('markdown_preview', None)
+        stats = request.json.get('stats', None)
         shap_plot_base64 = request.json.get('shap_summary_plot', None)
 
         if not user_input:
@@ -288,9 +290,26 @@ def chat():
         """
 
         messages = [{"role": "system", "content": system_prompt}]
+        KEYWORDS_BY_LANG = {
+            "fr": ["données", "dataset", "colonnes", "variables", "analyse", "statistiques", "modèle", "entraînement", "target"],
+            "en": ["data", "dataset", "columns", "features", "variables", "analysis", "statistics", "model", "training", "target"],
+            "es": ["datos", "dataset", "conjunto de datos", "columnas", "variables", "análisis", "estadísticas", "modelo", "entrenamiento", "objetivo"],
+        }
+        keywords = KEYWORDS_BY_LANG.get(lang, [])
+
+        # Si aucune donnée n'a été upload et le user pose une question dessus
+        if dataset is None and any(kw in user_input.lower() for kw in keywords):
+            messages.append({
+                "role": "assistant",
+                "content": "Je ne vois pas encore de dataset ou de résultats d'entraînement. Pour que je puisse vous aider, vous devez d’abord lancer un entraînement via l’interface avec vos données."
+        })
 
         if dataset:
             messages.append({"role": "user", "content": f"Aperçu du dataset fourni :\n{dataset}"})
+        
+        if stats:
+            print(f"Statistiques du dataset : {stats}")
+            messages.append({"role": "user", "content": f"Statistiques du dataset :\n{stats}"})
 
         if summary:
             messages.append({"role": "user", "content": f"Résumé des résultats d'entraînement :\n{summary}"})

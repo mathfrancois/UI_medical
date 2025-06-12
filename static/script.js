@@ -3,6 +3,7 @@ let lastUsedTargetColumn = null;
 let lastCleanedCsvBlob = null;
 let summaryResults = {};
 let dataSetPreview = null;
+let dataSetStats = null;
 let shapPlot = null;
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -162,8 +163,9 @@ function buildStats(rows) {
     };
     return stat;
   });
-
+  dataSetStats = stats; 
   displayStatsTable(stats);
+
 }
 
 
@@ -199,9 +201,6 @@ function displayStatsTable(stats) {
     table.appendChild(row);
   });
 }
-
-
-
 
 function buildPreview(rows) {
   const previewTable = document.getElementById('preview-table');
@@ -256,6 +255,10 @@ function buildPreview(rows) {
     targetSelect.appendChild(option);
   });
   buildStats(rows);
+
+  buildImputationControls(header, rows);
+  document.getElementById("imputation-controls").style.display = "block"; 
+
   const dropListContainer = document.getElementById("drop-columns-list");
   dropListContainer.innerHTML = "";
 
@@ -294,6 +297,62 @@ function removeCSVFile() {
   resultsDiv.style.display = 'none';
   dataSetPreview = null;
 }
+
+function buildImputationControls(header, data) {
+  const container = document.getElementById("imputation-controls");
+  container.innerHTML = "";
+
+  let anyMissing = false;
+
+  header.forEach((colName, colIndex) => {
+    const missing = data.some((row, i) => i > 0 && (row[colIndex] === "" || row[colIndex] === null || row[colIndex] === undefined));
+
+    if (!missing) return;
+
+    anyMissing = true;
+
+    const wrapper = document.createElement("div");
+    wrapper.style.marginBottom = "10px";
+
+    const label = document.createElement("label");
+    label.textContent = colName + ": ";
+    label.style.marginRight = "10px";
+    wrapper.appendChild(label);
+
+    const select = document.createElement("select");
+    select.name = `impute-${colName}`;
+    select.dataset.col = colName;
+
+    ["mean", "median", "mode", "constant"].forEach(method => {
+      const option = document.createElement("option");
+      option.value = method;
+      option.textContent = t(method); 
+      option.setAttribute("data-i18n", method); 
+      select.appendChild(option);
+    });
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Constant value";
+    input.style.marginLeft = "10px";
+    input.style.display = "none";
+
+    select.addEventListener("change", () => {
+      input.style.display = (select.value === "constant") ? "inline-block" : "none";
+    });
+
+    wrapper.appendChild(select);
+    wrapper.appendChild(input);
+    container.appendChild(wrapper);
+  });
+
+  if (!anyMissing) {
+    container.textContent = t("noMissingValues");
+    container.setAttribute('data-i18n', 'noMissingValues');
+  }
+}
+
+
 
 function startTraining() {
   const fileInput = document.getElementById('upload-csv');
@@ -342,8 +401,61 @@ function startTraining() {
     const dropIndexes = header.map((name, idx) => columnsToDrop.includes(name) ? idx : -1).filter(i => i !== -1);
     const cleanedData = data.map(row => row.filter((_, idx) => !dropIndexes.includes(idx)));
 
-    // Reconversion en CSV
-    const csv = Papa.unparse(cleanedData, { quotes: false });
+    const imputationChoices = {};
+    document.querySelectorAll('#imputation-controls select').forEach(select => {
+      const col = select.dataset.col;
+      const method = select.value;
+      let constant = null;
+      if (method === "constant") {
+        const input = select.nextElementSibling;
+        constant = input.value;
+      }
+      imputationChoices[col] = { method, constant };
+    });
+
+    // Appliquer l’imputation
+    const newHeader = cleanedData[0];
+    const colIndexes = Object.keys(imputationChoices).map(col =>
+      ({ col, idx: newHeader.indexOf(col) })
+    );
+
+    for (let rowIdx = 1; rowIdx < cleanedData.length; rowIdx++) {
+      const row = cleanedData[rowIdx];
+
+      for (const { col, idx } of colIndexes) {
+        if (row[idx] === "" || row[idx] === null || row[idx] === undefined) {
+          const { method, constant } = imputationChoices[col];
+          const colValues = cleanedData
+            .slice(1)
+            .map(r => r[idx])
+            .filter(v => v !== "" && v !== null && v !== undefined);
+
+          let fillValue;
+          if (method === "mean") {
+            const nums = colValues.map(Number).filter(n => !isNaN(n));
+            const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+            fillValue = mean.toFixed(2);
+          } else if (method === "median") {
+            const nums = colValues.map(Number).filter(n => !isNaN(n)).sort((a, b) => a - b);
+            const mid = Math.floor(nums.length / 2);
+            fillValue = nums.length % 2 === 0
+              ? ((nums[mid - 1] + nums[mid]) / 2).toFixed(2)
+              : nums[mid].toFixed(2);
+          } else if (method === "mode") {
+            const freq = {};
+            colValues.forEach(v => { freq[v] = (freq[v] || 0) + 1; });
+            fillValue = Object.entries(freq).reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+          } else if (method === "constant") {
+            fillValue = constant;
+          }
+
+          row[idx] = fillValue;
+        }
+      }
+    }
+
+    const cleanedDataSWhithoutLastRow = cleanedData.slice(0, -1);
+    const csv = Papa.unparse(cleanedDataSWhithoutLastRow, { quotes: false });
 
     // Préparation du fichier nettoyé à envoyer
     const formData = new FormData();
@@ -838,6 +950,9 @@ async function sendChat() {
       if (shapPlot){
         payload.shap_summary_plot = shapPlot
       }
+    }
+    if (dataSetStats){
+      payload.stats = dataSetStats
     }
     if (dataSetPreview) {
       payload.markdown_preview = dataSetPreview;
