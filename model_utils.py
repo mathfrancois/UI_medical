@@ -23,70 +23,6 @@ class UserError(Exception):
         self.message_key = message_key
         self.status_code = status_code
 
-def summarize_feature_importance(importances, top_k=5):
-    importances_sorted = importances.sort_values('importance', ascending=False)
-    top_features = importances_sorted.head(top_k)
-    summary = "Top {} variables les plus importantes selon le modèle :\n".format(top_k)
-    for feature, row in top_features.iterrows():
-        summary += f"- {feature} avec une importance relative de {row['importance']:.3f}\n"
-    return summary
-
-def summarize_confusion_matrix(y_true, y_pred, class_labels):
-    cm = confusion_matrix(y_true, y_pred, labels=class_labels)
-    total = cm.sum()
-    correct = np.trace(cm)
-    accuracy = correct / total
-    summary = f"La matrice de confusion montre une précision globale de {accuracy:.2%}.\n"
-    for i, label in enumerate(class_labels):
-        tp = cm[i, i]
-        fn = cm[i, :].sum() - tp
-        fp = cm[:, i].sum() - tp
-        summary += (f"Pour la classe '{label}':\n"
-                    f"  - Vrais positifs: {tp}\n"
-                    f"  - Faux négatifs: {fn}\n"
-                    f"  - Faux positifs: {fp}\n")
-    return summary
-
-def summarize_roc_auc(y_true, y_proba, pos_label):
-    auc_score = roc_auc_score(y_true, y_proba)
-    interpret = "excellent" if auc_score > 0.9 else "bon" if auc_score > 0.75 else "modéré"
-    return f"La courbe ROC a un score AUC de {auc_score:.3f}, ce qui est {interpret} pour distinguer les classes."
-
-def summarize_f1_per_class(y_true, y_pred, class_labels):
-    f1_per_class = f1_score(y_true, y_pred, average=None, labels=class_labels)
-    summary = "F1 score par classe :\n"
-    for label, score in zip(class_labels, f1_per_class):
-        summary += f"- Classe '{label}': {score:.3f}\n"
-    return summary
-
-def summarize_regression_metrics(y_true, y_pred):
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    r2 = r2_score(y_true, y_pred)
-    errors = y_pred - y_true
-    mean_error = errors.mean()
-    std_error = errors.std()
-    summary = (f"Régression: RMSE = {rmse:.3f}, R2 = {r2:.3f}.\n"
-               f"Erreur moyenne = {mean_error:.3f}, écart-type de l'erreur = {std_error:.3f}.")
-    return summary
-
-def summarize_shap_values(shap_values, feature_names, top_k=5):
-    mean_abs_shap = np.abs(shap_values.values).mean(axis=0)
-    indices = np.argsort(mean_abs_shap)[::-1][:top_k]
-    summary = "Variables qui influencent le plus la prédiction (SHAP) :\n"
-    for i in indices:
-        summary += f"- {feature_names[i]} avec une importance moyenne absolue de {mean_abs_shap[i]:.4f}\n"
-    return summary
-
-def generate_force_plot_base64(shap_values, features):
-    plt.figure(figsize=(10, 1))  # Ajuste la hauteur selon le besoin
-    shap.plots.force(shap_values, matplotlib=True)
-    buffer = BytesIO()
-    plt.savefig(buffer, format="png", bbox_inches='tight')
-    buffer.seek(0)
-    image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
-    plt.close()
-    return image_base64
-
 def shap_plot_to_base64(plot_func, *args, **kwargs):
     plt.figure()
     plot_func(*args, **kwargs, show=False)
@@ -186,7 +122,7 @@ def generate_metric_plot(metric_name, y_true=None, y_pred=None, y_proba=None, cl
     plt.close()
     return image_base64
 
-def train_model(df, target_column, time_limit, save_path, include_shap):
+def train_model(df, target_column, time_limit, save_path):
     try:
         save_path = os.path.abspath(save_path)
 
@@ -211,7 +147,7 @@ def train_model(df, target_column, time_limit, save_path, include_shap):
         y_proba = predictor.predict_proba(df) if task_type == 'binary' else None
         class_labels = predictor.class_labels if hasattr(predictor, 'class_labels') else None
 
-        feature_importance_summary = summarize_feature_importance(feature_importance_df)
+        # feature_importance_summary = summarize_feature_importance(feature_importance_df)
 
         perf_data = {}
         summary = ""
@@ -232,8 +168,8 @@ def train_model(df, target_column, time_limit, save_path, include_shap):
             summary = f"Tâche détectée : classification binaire\n\n"
             summary += f"Modèle sélectionné : {best_model}\n"
             summary += f"Temps d'entraînement : {float(leaderboard['fit_time'].sum()):.2f} seconds\n\n"
-            summary += summarize_confusion_matrix(y_test, y_pred, class_labels)
-            summary += summarize_roc_auc(y_test, y_proba[class_labels[1]], pos_label=class_labels[1])
+            # summary += summarize_confusion_matrix(y_test, y_pred, class_labels)
+            # summary += summarize_roc_auc(y_test, y_proba[class_labels[1]], pos_label=class_labels[1])
             summary += f"Résultat de la métrique accuracy : {perf_data['accuracy']['value']:.4f}\n"
             summary += f"Résultat de la métrique ROC AUC : {perf_data['roc_auc']['value']:.4f}\n"
 
@@ -253,8 +189,8 @@ def train_model(df, target_column, time_limit, save_path, include_shap):
             summary = f"Tâche détectée : classification multiclasse\n\n"
             summary += f"Modèle sélectionné : {best_model}\n"
             summary += f"Temps d'entraînement : {float(leaderboard['fit_time'].sum()):.2f} seconds\n\n"
-            summary += summarize_confusion_matrix(y_test, y_pred, class_labels)
-            summary += summarize_f1_per_class(y_test, y_pred, class_labels)
+            # summary += summarize_confusion_matrix(y_test, y_pred, class_labels)
+            # summary += summarize_f1_per_class(y_test, y_pred, class_labels)
             summary += f"Résultat de la métrique accuracy : {perf_data['accuracy']['value']:.4f}\n"
             summary += f"Résultat de la métrique F1 macro : {perf_data['f1_macro']['value']:.4f}\n"
 
@@ -274,7 +210,7 @@ def train_model(df, target_column, time_limit, save_path, include_shap):
             summary = f"Tâche détectée : regression\n\n"
             summary += f"Modèle sélectionné : {best_model}\n"
             summary += f"Temps d'entraînement : {float(leaderboard['fit_time'].sum()):.2f} seconds\n\n"
-            summary += summarize_regression_metrics(y_test, y_pred)
+            # summary += summarize_regression_metrics(y_test, y_pred)
             summary += f"Résultat de la métrique R2 : {perf_data['r2']['value']:.4f}\n"
             summary += f"Résultat de la métrique RMSE : {perf_data['rmse']['value']:.4f}"
 

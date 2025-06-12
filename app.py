@@ -8,16 +8,67 @@ from werkzeug.utils import secure_filename
 import pandas as pd
 from groq import Groq
 from dotenv import load_dotenv
+import logging
+from logging.handlers import RotatingFileHandler
 
-load_dotenv()  
+load_dotenv()
 
+log_formatter = logging.Formatter('[%(asctime)s] %(levelname)s in %(module)s: %(message)s')
+
+# Assure-toi que le dossier logs existe
+os.makedirs("logs", exist_ok=True)
+
+# Handler principal pour tous les logs (DEBUG et plus)
+log_file = "logs/server.log"
+file_handler = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5)
+file_handler.setFormatter(log_formatter)
+file_handler.setLevel(logging.DEBUG)
+
+# Handler pour les erreurs uniquement (WARNING et plus)
+error_file = "logs/errors.log"
+error_handler = RotatingFileHandler(error_file, maxBytes=5 * 1024 * 1024, backupCount=3)
+error_handler.setFormatter(log_formatter)
+error_handler.setLevel(logging.WARNING)
+
+# Affichage en console (développement)
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(log_formatter)
+stream_handler.setLevel(logging.DEBUG)
+
+# Appliquer la config avec tous les handlers
+logging.basicConfig(
+    level=logging.DEBUG if os.getenv("DEBUG", "False").lower() == "true" else logging.INFO,
+    handlers=[file_handler, error_handler, stream_handler]
+)
+
+
+logger = logging.getLogger(__name__)
 app = Flask(__name__)
+
 UPLOAD_FOLDER = 'uploads'
 MODEL_FOLDER = 'models'
 DECOMPRESSION_FOLDER = 'decompression'
 PREDICTION_FOLDER = 'prediction'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(MODEL_FOLDER, exist_ok=True)
+os.makedirs(PREDICTION_FOLDER, exist_ok=True)
+
+app.config['ENV'] = os.getenv("FLASK_ENV", "production")
+app.config['DEBUG'] = os.getenv("DEBUG", "False").lower() == "true"
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+ALLOWED_EXTENSIONS = {'csv', 'xls', 'xlsx', 'xlsm', 'arff'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def preview_dataset(df, max_rows=5):
+    try:
+        return df.head(max_rows).to_markdown(index=False)
+    except Exception as e:
+        logger.warning(f"Erreur lors de l'aperçu du dataset : {e}")
+        return f"Erreur lors de l'aperçu du dataset : {e}"
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # ou fixe-la directement (non recommandé en clair)
 
@@ -32,22 +83,30 @@ def create_training_folder(dataset_filename, base_dir=MODEL_FOLDER):
 
 @app.route('/')
 def index():
+    logger.info("Affichage de la page d'accueil.")
     return render_template('interface.html')
 
 @app.route('/train', methods=['POST'])
 def train():
     try:
-        file = request.files['file']
+        logger.info("Début de l'entraînement du modèle.")
+        file = request.files.get('file')
+        if not file or file.filename == '':
+            raise UserError("error_no_file")
+        if not allowed_file(file.filename):
+            raise UserError("error_unsupported_file_format")
+
         target_column = request.form['target_column'].strip()
         time_limit = int(request.form.get('time_limit', 60))
-
         if time_limit < 10 or time_limit > 600:
             raise UserError("error_time_limit_range")
 
-        path = os.path.join(UPLOAD_FOLDER, secure_filename(file.filename))
+        filename = secure_filename(file.filename)
+        path = os.path.join(UPLOAD_FOLDER, filename)
         file.save(path)
-        ext = os.path.splitext(path)[1].lower()
+        logger.debug(f"Fichier reçu : {filename}")
 
+        ext = os.path.splitext(path)[1].lower()
         if ext == '.csv':
             df = pd.read_csv(path)
         elif ext in ['.xls', '.xlsx', '.xlsm']:
@@ -63,83 +122,91 @@ def train():
 
         if target_column not in df.columns:
             raise UserError("error_target_not_in_columns")
-
         if df[target_column].isnull().all():
             raise UserError("error_target_all_missing")
 
-        training_folder, training_id, zip_filename = create_training_folder(file.filename)
-        include_shap = request.form.get("include_shap", "false").lower() == "true"
+        markdown_preview = preview_dataset(df)
+        training_folder, training_id, zip_filename = create_training_folder(filename)
+        logger.info(f"Dossier d'entraînement créé : {training_id}")
 
-        metrics = train_model(df, target_column, time_limit, training_folder, include_shap)
+        metrics = train_model(df, target_column, time_limit, training_folder)
+        logger.info("Entraînement terminé.")
 
         zip_path = os.path.join(MODEL_FOLDER, zip_filename)
         shutil.make_archive(base_name=zip_path.replace('.zip', ''), format='zip', root_dir=training_folder)
+        logger.info(f"Modèle compressé et sauvegardé : {zip_filename}")
 
         metrics['download_url'] = f"/download_model/{zip_filename}"
+        metrics['markdown_preview'] = markdown_preview
         return jsonify(metrics)
 
     except UserError as ue:
+        logger.warning(f"Erreur utilisateur pendant l'entraînement : {ue.message_key}")
         return jsonify({"error": ue.message_key}), ue.status_code
     except Exception as e:
+        logger.error(f"Erreur critique pendant l'entraînement : {e}")
         return jsonify({"error": "error_training_failed"}), 500
 
 @app.route('/download_model/<zip_filename>')
 def download_model(zip_filename):
     zip_path = os.path.join(MODEL_FOLDER, secure_filename(zip_filename))
     if not os.path.exists(zip_path):
+        logger.warning(f"Téléchargement échoué : fichier introuvable {zip_filename}")
         return "File not found", 404
+    logger.info(f"Téléchargement du modèle : {zip_filename}")
     return send_file(zip_path, as_attachment=True)
 
 @app.route('/generate_shap_plot', methods=['POST'])
 def shap_plot():
     try:
-        if 'dataset' not in request.files:
+        logger.info("Génération du graphe SHAP.")
+        file = request.files.get('dataset')
+        if not file or not allowed_file(file.filename):
             raise UserError("error_no_dataset")
 
-        file = request.files['dataset']
         df = pd.read_csv(file)
-
         model_path = request.form.get('model_path')
         target_column = request.form.get('target_column')
 
         if not model_path or not os.path.exists(model_path):
             raise UserError("error_invalid_model_path")
-
         if not target_column:
             raise UserError("error_missing_target_column")
 
         result = generate_shap_plot(model_path, df, target_column)
+        logger.info("Graphe SHAP généré avec succès.")
         return jsonify(result)
 
     except UserError as ue:
+        logger.warning(f"Erreur utilisateur SHAP : {ue.message_key}")
         return jsonify({"error": ue.message_key}), ue.status_code
     except Exception as e:
+        logger.error(f"Erreur critique SHAP : {e}")
         return jsonify({"error": "error_shap_failed"}), 500
 
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        logger.info("Début de la prédiction.")
         dataset_file = request.files.get('dataset')
         model_zip = request.files.get('zip_model')
 
         if not dataset_file or not model_zip:
             raise UserError("error_missing_dataset_or_model")
+        if not allowed_file(dataset_file.filename):
+            raise UserError("error_unsupported_file_format")
 
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         dataset_name = os.path.splitext(secure_filename(dataset_file.filename))[0]
         identifier = f"{timestamp}_{dataset_name}"
 
         file_ext = os.path.splitext(dataset_file.filename)[1].lower()
-        if file_ext not in ['.csv', '.xls', '.xlsx', '.xlsm', '.arff']:
-            raise UserError("error_unsupported_file_format")
-
         original_filename = f"{identifier}{file_ext}"
         file_path = os.path.join(UPLOAD_FOLDER, original_filename)
         dataset_file.save(file_path)
 
         decompression_folder = os.path.join(DECOMPRESSION_FOLDER, f"predict_{identifier}")
         os.makedirs(decompression_folder, exist_ok=True)
-
         zip_path = os.path.join(decompression_folder, "model.zip")
         model_zip.save(zip_path)
 
@@ -157,6 +224,7 @@ def predict():
         pred_path = os.path.join(PREDICTION_FOLDER, pred_filename)
         pd.DataFrame(predictions).to_csv(pred_path, index=False)
 
+        logger.info(f"Prédictions générées avec succès : {pred_filename}")
         return jsonify({
             "preview": predictions[:5],
             "download_url": f"/download_prediction/{pred_filename}",
@@ -164,15 +232,19 @@ def predict():
         })
 
     except UserError as ue:
+        logger.warning(f"Erreur utilisateur prédiction : {ue.message_key}")
         return jsonify({"error": ue.message_key}), ue.status_code
     except Exception as e:
+        logger.error(f"Erreur critique prédiction : {e}")
         return jsonify({"error": "error_prediction_failed"}), 500
 
 @app.route('/download_prediction/<filename>')
 def download_prediction(filename):
-    filepath = os.path.join(PREDICTION_FOLDER, filename)
+    filepath = os.path.join(PREDICTION_FOLDER, secure_filename(filename))
     if not os.path.exists(filepath):
+        logger.warning(f"Fichier de prédiction non trouvé : {filename}")
         return "File not found", 404
+    logger.info(f"Téléchargement des prédictions : {filename}")
     return send_file(filepath, as_attachment=True)
 
 @app.route('/chat', methods=['POST'])
@@ -181,10 +253,14 @@ def chat():
         user_input = request.json.get('message', '')
         summary = request.json.get('summary', None)
         lang = request.json.get('lang', 'en')
+        dataset = request.json.get('markdown_preview', None)
+        shap_plot_base64 = request.json.get('shap_summary_plot', None)
 
         if not user_input:
             return jsonify({"error": "error_empty_message"}), 400
-        
+
+        logger.info(f"Requête utilisateur au chatbot reçue. Langue : {lang}")
+
         lang_prompts = {
             "en": "Please respond in English.",
             "fr": "Merci de répondre en français.",
@@ -198,8 +274,11 @@ def chat():
         Tu es un assistant virtuel spécialisé en autoML, dédié à des professionnels médicaux non experts en machine learning.
         Tu aides à comprendre comment utiliser une interface qui permet d'entraîner des modèles sur des données médicales, choisir la colonne cible,
         paramétrer le temps d'entraînement, supprimer des colonnes du dataset avant entraînement, visualiser les résultats (métriques, matrices de confusion, courbes ROC, graphiques SHAP),
-        et prédire sur de nouvelles données.
+        et l'utilisateur peut ensuite télécharger le modèle entraîné s'il lui va et télécharger les images des graphiques des résultats. Ensuite, l'utilisateur
+        peut aller dans la section de prédiction, télécharger le modèle entraîné et entrer son dataset de prédiction pour obtenir des prédictions.
         Tu expliques les concepts simplement, sans jargon technique, et guides l'utilisateur sur comment améliorer son dataset, comprendre ses modèles et interpréter les résultats.
+        Il faut savoir que le modèle est généré grâce à AutoGluon en AutoML, donc l'utilisateur n'a pas la main pour choisir le modèle et les hyperparamètres.
+        De plus, pour l'instant, l'utilisateur ne peut que enlever des colonnes du dataset avant entrainement depuis l'interface pour influencer le modèle produit par AutoGluon pour l'instant.
 
         Exemples de questions :
         - Qu’est-ce qu’une matrice de confusion et comment l’interpréter ?
@@ -210,11 +289,20 @@ def chat():
 
         messages = [{"role": "system", "content": system_prompt}]
 
+        if dataset:
+            messages.append({"role": "user", "content": f"Aperçu du dataset fourni :\n{dataset}"})
+
         if summary:
-            messages.append({
-                "role": "user",
-                "content": f"Voici le résumé des résultats de l'entraînement :\n{summary}"
-            })
+            messages.append({"role": "user", "content": f"Résumé des résultats d'entraînement :\n{summary}"})
+            if (plot := summary.get("feature_importance_plot")):
+                messages.append({"role": "user", "content": [{"type": "text", "text": "Voici le graphe de l'importance des variables."}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{plot}"}}]})
+            for metric_name, metric_obj in summary.get("metrics_plot", {}).items():
+                base64_plot = metric_obj.get("plot")
+                if base64_plot:
+                    messages.append({"role": "user", "content": [{"type": "text", "text": f"Voici le graphe {metric_name}."}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_plot}"}}]})
+
+        if shap_plot_base64:
+            messages.append({"role": "user", "content": [{"type": "text", "text": "Voici le graphe SHAP de l'entraînement."}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{shap_plot_base64}"}}]})
 
         messages.append({"role": "user", "content": user_input})
 
@@ -225,17 +313,16 @@ def chat():
             temperature=0.7,
             max_completion_tokens=1024,
             top_p=1,
-            stream=False,
-            stop=None,
+            stream=False
         )
 
-        response = completion.choices[0].message.content
-        return jsonify({"response": response})
+        logger.info("Réponse générée par le chatbot avec succès.")
+        return jsonify({"response": completion.choices[0].message.content})
 
     except Exception as e:
+        logger.error(f"Erreur chatbot : {e}")
         return jsonify({"error": "error_chat"}), 500
 
-
-
 if __name__ == '__main__':
-    app.run(debug=True)
+    logger.info("Lancement du serveur Flask.")
+    app.run(debug=app.config['DEBUG'], env=app.config['ENV'])

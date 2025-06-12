@@ -1,7 +1,9 @@
 let lastTrainedModelPath = null;
 let lastUsedTargetColumn = null;
 let lastCleanedCsvBlob = null;
-let summaryResults = null;
+let summaryResults = {};
+let dataSetPreview = null;
+let shapPlot = null;
 
 window.addEventListener("DOMContentLoaded", () => {
   const savedLang = localStorage.getItem("selectedLanguage") || "en";
@@ -290,7 +292,7 @@ function removeCSVFile() {
   
   const resultsDiv = document.getElementById('training-results');
   resultsDiv.style.display = 'none';
-
+  dataSetPreview = null;
 }
 
 function startTraining() {
@@ -365,11 +367,10 @@ function startTraining() {
         showAlert(t(data.error), 'error');
         return;
       }
-
-      // Appel d’une fonction de rendu des résultats
       renderTrainingResults(data);
     })
     .catch(error => {
+      console.log(error);
       document.getElementById('training-spinner').style.display = "none";
       showAlert(t("trainingError"), 'error');
     });
@@ -385,7 +386,10 @@ function startTraining() {
 
 function renderTrainingResults(data) {
   lastTrainedModelPath = data.model_path;
-  summaryResults = data.summary_LLM;
+  summaryResults["summary"] = data.summary_LLM;
+  summaryResults["feature_importance_plot"] = data.feature_importance_plot;
+  summaryResults["metrics_plot"] = data.metrics;
+  dataSetPreview = data.markdown_preview; 
   const resultsDiv = document.getElementById('training-results');
   resultsDiv.innerHTML = `<h2 data-i18n="trainingResults">${t("trainingResults")}</h2>`;
 
@@ -558,7 +562,7 @@ async function generateShapPlot() {
 
     const result = await response.json();
     const shapImage = result.shap_summary_plot;
-
+    shapPlot = shapImage;
     const plotCard = document.getElementById("shap-plots");
     plotCard.innerHTML = `
       <h4 data-i18n="shapSummary">${t("shapSummary")}</h4>
@@ -821,12 +825,23 @@ async function sendChat() {
   input.value = '';
 
   try {
-    const payload = { message };
-    if (summaryResults) {
-      payload.summary = summaryResults;
+    const payload = {
+      message,
+      lang
+    };    
+    if (Object.keys(summaryResults).length !== 0) {
+      payload.summary = {
+        text: summaryResults.summary, 
+        feature_importance_plot: summaryResults.feature_importance_plot, 
+        metrics_plot: summaryResults.metrics_plot 
+      };
+      if (shapPlot){
+        payload.shap_summary_plot = shapPlot
+      }
     }
-    payload.lang = lang;
-
+    if (dataSetPreview) {
+      payload.markdown_preview = dataSetPreview;
+    }
     const response = await fetch('/chat', {
       method: 'POST',
       headers: {
