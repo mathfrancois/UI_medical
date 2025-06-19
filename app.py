@@ -11,6 +11,12 @@ from dotenv import load_dotenv
 import logging
 from logging.handlers import RotatingFileHandler
 import threading
+from cleanup import cleanup_old_files
+from apscheduler.schedulers.background import BackgroundScheduler
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(cleanup_old_files, 'interval', hours=1)
+scheduler.start()
 
 training_threads = {}
 stop_events = {}
@@ -42,7 +48,6 @@ logging.basicConfig(
     handlers=[file_handler, error_handler, stream_handler]
 )
 
-
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
@@ -68,10 +73,10 @@ def preview_dataset(df, max_rows=5):
     try:
         return df.head(max_rows).to_markdown(index=False)
     except Exception as e:
-        logger.warning(f"Erreur lors de l'aperçu du dataset : {e}")
-        return f"Erreur lors de l'aperçu du dataset : {e}"
+        logger.warning(f"Error during dataset preview: {e}")
+        return f"Error during dataset preview: {e}"
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # ou fixe-la directement (non recommandé en clair)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 def create_training_folder(dataset_filename, base_dir=MODEL_FOLDER):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -84,13 +89,13 @@ def create_training_folder(dataset_filename, base_dir=MODEL_FOLDER):
 
 @app.route('/')
 def index():
-    logger.info("Affichage de la page d'accueil.")
+    logger.info("Displaying home page.")
     return render_template('interface.html')
 
 @app.route('/train', methods=['POST'])
 def train():
     try:
-        logger.info("Début de l'entraînement du modèle.")
+        logger.info("Starting model training.")
         file = request.files.get('file')
         if not file or file.filename == '':
             raise UserError("error_no_file")
@@ -105,7 +110,7 @@ def train():
         filename = secure_filename(file.filename)
         path = os.path.join(UPLOAD_FOLDER, filename)
         file.save(path)
-        logger.debug(f"Fichier reçu : {filename}")
+        logger.debug(f"File received: {filename}")
 
         ext = os.path.splitext(path)[1].lower()
         if ext == '.csv':
@@ -128,7 +133,7 @@ def train():
 
         markdown_preview = preview_dataset(df)
         training_folder, training_id, zip_filename = create_training_folder(filename)
-        logger.info(f"Dossier d'entraînement créé : {training_id}")
+        logger.info(f"Training folder created: {training_id}")
 
         stop_event = threading.Event()
         stop_events[training_id] = stop_event
@@ -138,18 +143,18 @@ def train():
                 metrics = train_model(df, target_column, time_limit, training_folder, stop_event)
                 zip_path = os.path.join(MODEL_FOLDER, zip_filename)
                 shutil.make_archive(base_name=zip_path.replace('.zip', ''), format='zip', root_dir=training_folder)
-                logger.info(f"Modèle compressé et sauvegardé : {zip_filename}")
+                logger.info(f"Model compressed and saved: {zip_filename}")
                 metrics['download_url'] = f"/download_model/{zip_filename}"
                 metrics['markdown_preview'] = markdown_preview
                 metrics['training_id'] = training_id
 
                 training_results[training_id] = metrics
-                logger.info(f"Entraînement terminé avec succès pour {training_id}.")
+                logger.info(f"Training successfully completed for {training_id}.")
 
                 training_threads.pop(training_id, None)
                 stop_events.pop(training_id, None)
             except Exception as e:
-                logger.error(f"Erreur dans le thread d'entraînement : {e}")
+                logger.error(f"Error in training thread: {e}")
                 training_threads.pop(training_id, None)
                 stop_events.pop(training_id, None)
 
@@ -160,10 +165,10 @@ def train():
         return jsonify({"training_id": training_id})
 
     except UserError as ue:
-        logger.warning(f"Erreur utilisateur pendant l'entraînement : {ue.message_key}")
+        logger.warning(f"User error during training: {ue.message_key}")
         return jsonify({"error": ue.message_key}), ue.status_code
     except Exception as e:
-        logger.error(f"Erreur critique pendant l'entraînement : {e}")
+        logger.error(f"Critical error during training: {e}")
         return jsonify({"error": "error_training_failed"}), 500
     
 @app.route('/training_result/<training_id>', methods=['GET'])
@@ -189,16 +194,16 @@ def stop_training(training_id):
 def download_model(zip_filename):
     zip_path = os.path.join(MODEL_FOLDER, secure_filename(zip_filename))
     if not os.path.exists(zip_path):
-        logger.warning(f"Téléchargement échoué : fichier introuvable {zip_filename}")
+        logger.warning(f"Download failed: file not found {zip_filename}")
         return "File not found", 404
-    logger.info(f"Téléchargement du modèle : {zip_filename}")
+    logger.info(f"Model download: {zip_filename}")
     return send_file(zip_path, as_attachment=True)
     
 
 @app.route('/generate_shap_plot', methods=['POST'])
 def shap_plot():
     try:
-        logger.info("Génération du graphe SHAP.")
+        logger.info("Generating SHAP plot.")
         file = request.files.get('dataset')
         if not file or not allowed_file(file.filename):
             raise UserError("error_no_dataset")
@@ -213,20 +218,20 @@ def shap_plot():
             raise UserError("error_missing_target_column")
 
         result = generate_shap_plot(model_path, df, target_column)
-        logger.info("Graphe SHAP généré avec succès.")
+        logger.info("SHAP plot generated successfully.")
         return jsonify(result)
 
     except UserError as ue:
-        logger.warning(f"Erreur utilisateur SHAP : {ue.message_key}")
+        logger.warning(f"User error SHAP: {ue.message_key}")
         return jsonify({"error": ue.message_key}), ue.status_code
     except Exception as e:
-        logger.error(f"Erreur critique SHAP : {e}")
+        logger.error(f"Critical error SHAP: {e}")
         return jsonify({"error": "error_shap_failed"}), 500
 
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        logger.info("Début de la prédiction.")
+        logger.info("Starting prediction.")
         dataset_file = request.files.get('dataset')
         model_zip = request.files.get('zip_model')
 
@@ -263,7 +268,7 @@ def predict():
         pred_path = os.path.join(PREDICTION_FOLDER, pred_filename)
         pd.DataFrame(predictions).to_csv(pred_path, index=False)
 
-        logger.info(f"Prédictions générées avec succès : {pred_filename}")
+        logger.info(f"Predictions generated successfully: {pred_filename}")
         return jsonify({
             "preview": predictions[:5],
             "download_url": f"/download_prediction/{pred_filename}",
@@ -271,22 +276,22 @@ def predict():
         })
 
     except UserError as ue:
-        logger.warning(f"Erreur utilisateur prédiction : {ue.message_key}")
+        logger.warning(f"User error prediction: {ue.message_key}")
         return jsonify({"error": ue.message_key}), ue.status_code
     except Exception as e:
-        logger.error(f"Erreur critique prédiction : {e}")
+        logger.error(f"Critical error prediction: {e}")
         return jsonify({"error": "error_prediction_failed"}), 500
 
 @app.route('/download_prediction/<filename>')
 def download_prediction(filename):
     filepath = os.path.join(PREDICTION_FOLDER, secure_filename(filename))
     if not os.path.exists(filepath):
-        logger.warning(f"Fichier de prédiction non trouvé : {filename}")
+        logger.warning(f"Prediction file not found: {filename}")
         return "File not found", 404
-    logger.info(f"Téléchargement des prédictions : {filename}")
+    logger.info(f"Prediction download: {filename}")
     return send_file(filepath, as_attachment=True)
 
-@app.route('/chat', methods=['POST'])
+@app.route('/chat', methods=['POST'])   
 def chat():
     try:
         user_input = request.json.get('message', '')
@@ -300,7 +305,7 @@ def chat():
         if not user_input:
             return jsonify({"error": "error_empty_message"}), 400
 
-        logger.info(f"Requête utilisateur au chatbot reçue. Langue : {lang}")
+        logger.info(f"User request received by chatbot. Language: {lang}")
 
         lang_prompts = {
             "en": "Please respond in English.",
@@ -309,7 +314,7 @@ def chat():
         }
 
         lang_prompt = lang_prompts.get(lang, lang_prompts["en"])
-        print(f"Langue sélectionnée : {lang}")
+        print(f"Selected language: {lang}")
 
         system_prompt = f"""
         {lang_prompt}
@@ -338,7 +343,6 @@ def chat():
         }
         keywords = KEYWORDS_BY_LANG.get(lang, [])
 
-        # Si aucune donnée n'a été upload et le user pose une question dessus
         if dataset is None and any(kw in user_input.lower() for kw in keywords):
             messages.append({
                 "role": "assistant",
@@ -380,13 +384,13 @@ def chat():
             stream=False
         )
 
-        logger.info("Réponse générée par le chatbot avec succès.")
+        logger.info("Chatbot response generated successfully.")
         return jsonify({"response": completion.choices[0].message.content})
 
     except Exception as e:
-        logger.error(f"Erreur chatbot : {e}")
+        logger.error(f"Chatbot error: {e}")
         return jsonify({"error": "error_chat"}), 500
 
 if __name__ == '__main__':
-    logger.info("Lancement du serveur Flask.")
+    logger.info("Starting Flask server.")
     app.run(debug=app.config['DEBUG'], env=app.config['ENV'])

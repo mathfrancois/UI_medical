@@ -1,6 +1,13 @@
 import os
 import time
 import shutil
+import logging
+
+logging.basicConfig(
+    filename='cleanup.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 FOLDERS_TO_CLEAN = {
     'uploads': 3600,         # 1h
@@ -17,14 +24,17 @@ def cleanup_old_files():
         for filename in os.listdir(folder):
             file_path = os.path.join(folder, filename)
             try:
+                file_age = now - os.path.getmtime(file_path)
                 if os.path.isdir(file_path):
-                    if now - os.path.getmtime(file_path) > max_age:
+                    if file_age > max_age:
                         shutil.rmtree(file_path)
+                        logging.info(f"Dossier supprimé : {file_path}")
                 else:
-                    if now - os.path.getmtime(file_path) > max_age:
+                    if file_age > max_age:
                         os.remove(file_path)
+                        logging.info(f"Fichier supprimé : {file_path}")
             except Exception as e:
-                print(f"Erreur lors de la suppression de {file_path} : {e}")
+                logging.error(f"Erreur lors de la suppression de {file_path} : {e}")
 
 if __name__ == "__main__":
     cleanup_old_files()

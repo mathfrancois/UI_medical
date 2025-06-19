@@ -409,7 +409,7 @@ function stopTraining() {
     .then(response => response.json())
     .then(data => {
       if (data.error) {
-        showAlert(t(data.error), 'error');
+        showAlert(t("stopTrainingError"), 'error');
         return;
       }
       if (pollingInterval) {
@@ -450,16 +450,15 @@ function pollTrainingResult(trainingId) {
         pollingInterval = null;
 
         if (result.error) {
-          showAlert(t(result.error), 'error');
+          showAlert(t("trainingErrorGet"), 'error');
         } else {
           renderTrainingResults(result); 
         }
         resetTrainingButtons();
       })
       .catch(err => {
-        console.error("Erreur lors de l'envoi du fichier :", err);
         clearInterval(pollingInterval);
-        showAlert(t("trainingError"), 'error');
+        showAlert(t("trainingErrorNetwork"), 'error');
         resetTrainingButtons();
       });
   }, 2000); 
@@ -596,7 +595,7 @@ function startTraining() {
     .then(data => {
 
       if (data.error) {
-        showAlert(t(data.error), 'error');
+        showAlert(t("beginTrainingError"), 'error');
         resetTrainingButtons();
         return;
       }
@@ -1098,7 +1097,7 @@ async function sendChat() {
 
     if (!response.ok) {
       const errorData = await response.json();
-      showAlert(t(errorData.error || 'error_unknown'), 'error');
+      showAlert(t(errorData.error), 'error');
       return;
     }
 
