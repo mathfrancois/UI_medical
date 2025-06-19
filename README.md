@@ -31,7 +31,8 @@ This project provides a user-friendly web interface for medical professionals to
 1. **Clone the repository**
 
 ```bash
-git clone <your-repo-url>
+SSH : git clone git@github.com:mathfrancois/UI_medical.git 
+HTTP : git clone https://github.com/mathfrancois/UI_medical.git
 cd UI_medical
 ```
 

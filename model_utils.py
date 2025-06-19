@@ -36,7 +36,7 @@ def shap_plot_to_base64(plot_func, *args, **kwargs):
 
 
 def generate_rmse_error_histogram_base64(y_true, y_pred):
-    errors = y_pred - y_true  # or y_true - y_pred depending on your interpretation
+    errors = y_pred - y_true  
     plt.figure(figsize=(8, 6))
     sns.histplot(errors, bins=30, kde=True, color='orange', stat='density')
     plt.axvline(0, color='blue', linestyle='--', label='Zero error')
@@ -122,18 +122,24 @@ def generate_metric_plot(metric_name, y_true=None, y_pred=None, y_proba=None, cl
     plt.close()
     return image_base64
 
-def train_model(df, target_column, time_limit, save_path):
+
+def train_model(df, target_column, time_limit, save_path, stop_event=None):
     try:
         save_path = os.path.abspath(save_path)
 
         if df[target_column].isnull().any():
             raise UserError("error_missing_target_values")
 
-        predictor = TabularPredictor(label=target_column, path=save_path).fit(df, time_limit=time_limit)
+        predictor = TabularPredictor(label=target_column, path=save_path)
 
-        model = predictor._trainer.load_model(predictor._trainer.model_best)
+        if stop_event and stop_event.is_set():
+            raise UserError("training_interrupted")
+        
+        predictor.fit(df, time_limit=time_limit)
 
-        shap_summary_plot = None
+
+        if stop_event and stop_event.is_set():
+            raise UserError("training_interrupted")
 
         feature_importance_df = predictor.feature_importance(df)
         feature_importance_plot = generate_feature_importance_plot(feature_importance_df)
@@ -146,8 +152,6 @@ def train_model(df, target_column, time_limit, save_path):
         y_pred = predictor.predict(df)
         y_proba = predictor.predict_proba(df) if task_type == 'binary' else None
         class_labels = predictor.class_labels if hasattr(predictor, 'class_labels') else None
-
-        # feature_importance_summary = summarize_feature_importance(feature_importance_df)
 
         perf_data = {}
         summary = ""
@@ -168,8 +172,6 @@ def train_model(df, target_column, time_limit, save_path):
             summary = f"Tâche détectée : classification binaire\n\n"
             summary += f"Modèle sélectionné : {best_model}\n"
             summary += f"Temps d'entraînement : {float(leaderboard['fit_time'].sum()):.2f} seconds\n\n"
-            # summary += summarize_confusion_matrix(y_test, y_pred, class_labels)
-            # summary += summarize_roc_auc(y_test, y_proba[class_labels[1]], pos_label=class_labels[1])
             summary += f"Résultat de la métrique accuracy : {perf_data['accuracy']['value']:.4f}\n"
             summary += f"Résultat de la métrique ROC AUC : {perf_data['roc_auc']['value']:.4f}\n"
 
@@ -189,8 +191,6 @@ def train_model(df, target_column, time_limit, save_path):
             summary = f"Tâche détectée : classification multiclasse\n\n"
             summary += f"Modèle sélectionné : {best_model}\n"
             summary += f"Temps d'entraînement : {float(leaderboard['fit_time'].sum()):.2f} seconds\n\n"
-            # summary += summarize_confusion_matrix(y_test, y_pred, class_labels)
-            # summary += summarize_f1_per_class(y_test, y_pred, class_labels)
             summary += f"Résultat de la métrique accuracy : {perf_data['accuracy']['value']:.4f}\n"
             summary += f"Résultat de la métrique F1 macro : {perf_data['f1_macro']['value']:.4f}\n"
 
@@ -210,7 +210,6 @@ def train_model(df, target_column, time_limit, save_path):
             summary = f"Tâche détectée : regression\n\n"
             summary += f"Modèle sélectionné : {best_model}\n"
             summary += f"Temps d'entraînement : {float(leaderboard['fit_time'].sum()):.2f} seconds\n\n"
-            # summary += summarize_regression_metrics(y_test, y_pred)
             summary += f"Résultat de la métrique R2 : {perf_data['r2']['value']:.4f}\n"
             summary += f"Résultat de la métrique RMSE : {perf_data['rmse']['value']:.4f}"
 
@@ -246,23 +245,24 @@ def generate_shap_plot(model_path, df, target_column):
 
         X = df.drop(columns=[target_column])
 
+        # SHAP explainer
         if predictor.problem_type in ["binary", "multiclass"]:
             explainer = shap.Explainer(model.predict_proba, X)
         else:
             explainer = shap.Explainer(model.predict, X)
 
         shap_values = explainer(X)
-
         shap_summary_plot = shap_plot_to_base64(shap.summary_plot, shap_values, X)
 
         return {
-            'shap_summary_plot': shap_summary_plot
+            'shap_summary_plot': shap_summary_plot,
         }
 
     except UserError:
         raise
     except Exception:
         raise UserError("error_shap")
+
 
 
 

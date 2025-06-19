@@ -10,32 +10,33 @@ from groq import Groq
 from dotenv import load_dotenv
 import logging
 from logging.handlers import RotatingFileHandler
+import threading
+
+training_threads = {}
+stop_events = {}
+
+training_results = {}
 
 load_dotenv()
 
 log_formatter = logging.Formatter('[%(asctime)s] %(levelname)s in %(module)s: %(message)s')
 
-# Assure-toi que le dossier logs existe
 os.makedirs("logs", exist_ok=True)
 
-# Handler principal pour tous les logs (DEBUG et plus)
 log_file = "logs/server.log"
 file_handler = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5)
 file_handler.setFormatter(log_formatter)
 file_handler.setLevel(logging.DEBUG)
 
-# Handler pour les erreurs uniquement (WARNING et plus)
 error_file = "logs/errors.log"
 error_handler = RotatingFileHandler(error_file, maxBytes=5 * 1024 * 1024, backupCount=3)
 error_handler.setFormatter(log_formatter)
 error_handler.setLevel(logging.WARNING)
 
-# Affichage en console (développement)
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(log_formatter)
 stream_handler.setLevel(logging.DEBUG)
 
-# Appliquer la config avec tous les handlers
 logging.basicConfig(
     level=logging.DEBUG if os.getenv("DEBUG", "False").lower() == "true" else logging.INFO,
     handlers=[file_handler, error_handler, stream_handler]
@@ -122,7 +123,6 @@ def train():
 
         if target_column not in df.columns:
             raise UserError("error_target_not_in_columns")
-        
         if df[target_column].isnull().all():
             raise UserError("error_target_all_missing")
 
@@ -130,16 +130,34 @@ def train():
         training_folder, training_id, zip_filename = create_training_folder(filename)
         logger.info(f"Dossier d'entraînement créé : {training_id}")
 
-        metrics = train_model(df, target_column, time_limit, training_folder)
-        logger.info("Entraînement terminé.")
+        stop_event = threading.Event()
+        stop_events[training_id] = stop_event
 
-        zip_path = os.path.join(MODEL_FOLDER, zip_filename)
-        shutil.make_archive(base_name=zip_path.replace('.zip', ''), format='zip', root_dir=training_folder)
-        logger.info(f"Modèle compressé et sauvegardé : {zip_filename}")
+        def training_task():
+            try:
+                metrics = train_model(df, target_column, time_limit, training_folder, stop_event)
+                zip_path = os.path.join(MODEL_FOLDER, zip_filename)
+                shutil.make_archive(base_name=zip_path.replace('.zip', ''), format='zip', root_dir=training_folder)
+                logger.info(f"Modèle compressé et sauvegardé : {zip_filename}")
+                metrics['download_url'] = f"/download_model/{zip_filename}"
+                metrics['markdown_preview'] = markdown_preview
+                metrics['training_id'] = training_id
 
-        metrics['download_url'] = f"/download_model/{zip_filename}"
-        metrics['markdown_preview'] = markdown_preview
-        return jsonify(metrics)
+                training_results[training_id] = metrics
+                logger.info(f"Entraînement terminé avec succès pour {training_id}.")
+
+                training_threads.pop(training_id, None)
+                stop_events.pop(training_id, None)
+            except Exception as e:
+                logger.error(f"Erreur dans le thread d'entraînement : {e}")
+                training_threads.pop(training_id, None)
+                stop_events.pop(training_id, None)
+
+        training_thread = threading.Thread(target=training_task, daemon=True)
+        training_threads[training_id] = training_thread
+        training_thread.start()
+
+        return jsonify({"training_id": training_id})
 
     except UserError as ue:
         logger.warning(f"Erreur utilisateur pendant l'entraînement : {ue.message_key}")
@@ -147,6 +165,25 @@ def train():
     except Exception as e:
         logger.error(f"Erreur critique pendant l'entraînement : {e}")
         return jsonify({"error": "error_training_failed"}), 500
+    
+@app.route('/training_result/<training_id>', methods=['GET'])
+def get_training_result(training_id):
+    if training_id in training_results:
+        result = training_results.pop(training_id)  
+        return jsonify(result)
+    else:
+        return '', 202  
+
+    
+@app.route('/stop_training/<training_id>', methods=['POST'])
+def stop_training(training_id):
+    stop_event = stop_events.get(training_id)
+    if stop_event:
+        stop_event.set()
+        return jsonify({"message": "training_stopped"})
+    else:
+        return jsonify({"error": "training_id_not_found"}), 404
+
 
 @app.route('/download_model/<zip_filename>')
 def download_model(zip_filename):
@@ -156,6 +193,7 @@ def download_model(zip_filename):
         return "File not found", 404
     logger.info(f"Téléchargement du modèle : {zip_filename}")
     return send_file(zip_path, as_attachment=True)
+    
 
 @app.route('/generate_shap_plot', methods=['POST'])
 def shap_plot():
@@ -257,6 +295,7 @@ def chat():
         dataset = request.json.get('markdown_preview', None)
         stats = request.json.get('stats', None)
         shap_plot_base64 = request.json.get('shap_summary_plot', None)
+        plot_predictions = request.json.get('plots_prediction_results', None)
 
         if not user_input:
             return jsonify({"error": "error_empty_message"}), 400
@@ -270,9 +309,11 @@ def chat():
         }
 
         lang_prompt = lang_prompts.get(lang, lang_prompts["en"])
+        print(f"Langue sélectionnée : {lang}")
 
         system_prompt = f"""
         {lang_prompt}
+        Ne souligne pas le fait que tu répond dans une langue spécifique.
         Tu es un assistant virtuel spécialisé en autoML, dédié à des professionnels médicaux non experts en machine learning.
         Tu aides à comprendre comment utiliser une interface qui permet d'entraîner des modèles sur des données médicales, choisir la colonne cible,
         paramétrer le temps d'entraînement, supprimer des colonnes du dataset avant entraînement, visualiser les résultats (métriques, matrices de confusion, courbes ROC, graphiques SHAP),
@@ -308,7 +349,6 @@ def chat():
             messages.append({"role": "user", "content": f"Aperçu du dataset fourni :\n{dataset}"})
         
         if stats:
-            print(f"Statistiques du dataset : {stats}")
             messages.append({"role": "user", "content": f"Statistiques du dataset :\n{stats}"})
 
         if summary:
@@ -322,6 +362,11 @@ def chat():
 
         if shap_plot_base64:
             messages.append({"role": "user", "content": [{"type": "text", "text": "Voici le graphe SHAP de l'entraînement."}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{shap_plot_base64}"}}]})
+
+        if plot_predictions:
+            for name_plot, plot in plot_predictions.items():
+                if plot:
+                    messages.append({"role": "user", "content": [{"type": "text", "text": f"Voici le graphe {name_plot} des résultats de prédiction."}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{plot}"}}]})
 
         messages.append({"role": "user", "content": user_input})
 

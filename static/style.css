@@ -1,7 +1,16 @@
+:root {
+  --primary-color: #3a5a80;
+  --primary-hover: #2d4560;
+  --accent-color: #dee6ef;
+  --background-color: #f8f9fb;
+  --border-color: #d0d7de;
+  --text-color: #333;
+}
+
 body {
   font-family: "Segoe UI", sans-serif;
-  background: #f2f6fa;
-  color: #222;
+  background: var(--background-color);
+  color: var(--text-color);
   margin: 0;
   padding: 0;
   height: 100vh;
@@ -174,6 +183,22 @@ body {
   display: none !important;
 }
 
+.close-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #555; 
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  line-height: 1;
+  transition: color 0.2s ease;
+}
+
+.close-button:hover {
+  color: #000; 
+}
+
+
 .settings-container {
   position: absolute;
   top: 16px;
@@ -245,17 +270,6 @@ body {
   outline: none;
 }
 
-
-/* .main-container {
-  display: flex;
-  gap: 40px; 
-  height: 100%;
-  max-width: 1400px; 
-  margin: auto;
-  padding: 0 20px;
-} */
-
-
 .right-content {
   flex: 2;
   overflow-y: auto;
@@ -263,6 +277,42 @@ body {
   height: 100%;
 }
 
+#csv-file-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  margin-top: 20px;
+  background-color: #f0f4f8; 
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 14px;
+  color: #333;
+  border: 1px solid #d0d7de;
+}
+
+#csv-file-name {
+  font-weight: 500;
+  color: #1a202c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 80%;
+}
+
+.remove-btn {
+  background-color: transparent;
+  border: none;
+  color: #e53e3e;
+  font-size: 16px;
+  cursor: pointer;
+  transition: color 0.2s ease-in-out;
+}
+
+.remove-btn:hover {
+  color: #c53030;
+}
 
 section {
   background: white;
@@ -270,6 +320,7 @@ section {
   margin-bottom: 30px;
   border-radius: 15px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  margin-top: 20px;
 }
 
 h2 {
@@ -448,6 +499,23 @@ th, td {
   background-color: #0056b3;
 }
 
+.neutral-button {
+  display: inline-block;
+  padding: 10px 20px;
+  background-color: #6c757d;  /* Gris doux, neutre */
+  color: white;
+  font-weight: bold;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-top: 10px;
+  transition: background-color 0.3s ease;
+  border: none;
+}
+
+.neutral-button:hover {
+  background-color: #5a6268;
+}
+
 .primary-action-button {
   display: inline-block;
   padding: 10px 20px;
@@ -516,7 +584,7 @@ button.download-button {
   font-size: 14px;
   font-weight: 600;
   border-radius: 6px;
-  background-color: #ffb347; /* orange doux */
+  background-color: #ffb347; 
   color: #fff;
   border: none;
   cursor: pointer;
@@ -562,6 +630,54 @@ button.download-button {
   background-color: #f4f4f4;
 }
 
+.slider-container {
+  width: fit-content;
+  margin-bottom: 20px;
+  font-family: "Segoe UI", sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.range-wrapper {
+  position: relative;
+  width: 500px;
+  margin-top: 0; 
+}
+
+.slider-value-display {
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #3a3a3a;
+  text-align: center;
+  width: 100%;
+}
+
+#time-limit-display {
+  background-color: #eef2f7;
+  padding: 6px 10px;
+  border-radius: 8px;
+  display: inline-block;
+  min-width: 60px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  margin-left: -320px; 
+}
+
+.tooltip {
+  position: absolute;
+  top: -35px;
+  left: 0;
+  background: #3a5a80;
+  color: white;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+  transition: left 0.1s ease;
+}
 
 
 .tab-radio-group {
@@ -675,30 +791,17 @@ button.download-button {
   min-width: 120px;
 }
 
-#imputation-controls select,
-#imputation-controls input[type="text"] {
-  padding: 6px 10px;
-  font-size: 14px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background-color: #f9f9f9;
-  transition: border-color 0.3s;
-  min-width: 150px;
-}
 
-#imputation-controls select:focus,
-#imputation-controls input[type="text"]:focus {
-  outline: none;
-  border-color: #007bff;
-  background-color: #fff;
-  box-shadow: 0 0 0 2px rgba(0,123,255,0.2);
-}
 
-#target-column {
+select{
   padding: 8px;
   border-radius: 6px;
   border: 1px solid #ccc;
   background: #fff;
   font-size: 14px;
   margin-top: 5px;
+}
+
+#target-column{
+  margin-left: 20px;
 }

@@ -5,18 +5,46 @@ let summaryResults = {};
 let dataSetPreview = null;
 let dataSetStats = null;
 let shapPlot = null;
+let PlotsPredictionResults = null;
+let trainingId = null;
+let pollingInterval = null;
 
 window.addEventListener("DOMContentLoaded", () => {
   const savedLang = localStorage.getItem("selectedLanguage") || "en";
   document.getElementById("language-select").value = savedLang;
   changeLanguage(savedLang);
+  updateTimeDisplay();
 });
 
-function updateTimeDisplay() {
-    const slider = document.getElementById("training-time-limit");
-    const display = document.getElementById("time-limit-display");
-    display.textContent = slider.value;
+function updateTimeDisplay(event) {
+  const slider = document.getElementById("training-time-limit");
+  const display = document.getElementById("time-limit-display");
+  // const tooltip = document.getElementById("time-tooltip");
+
+  const minutes = parseInt(slider.value, 10);
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+
+  let formatted = "";
+  if (minutes === 0) {
+    formatted = "0 min";
+  } else if (mins === 0) {
+    formatted = `${hours}h`;
+  } else if (hours === 0) {
+    formatted = `${mins} min`;
+  } else {
+    formatted = `${hours}h${mins}`;
+  }
+
+  display.textContent = formatted;
+  // tooltip.textContent = formatted;
+
+  const sliderWidth = slider.offsetWidth;
+  const percent = (slider.value - slider.min) / (slider.max - slider.min);
+  const offset = sliderWidth * percent;
+  // tooltip.style.left = `${offset}px`;
 }
+
 
 const settingsToggle = document.getElementById("settings-toggle");
 const settingsMenu = document.getElementById("settings-menu");
@@ -134,7 +162,7 @@ document.getElementById('upload-csv').addEventListener('change', function () {
       };
       reader.readAsArrayBuffer(file);
     }
-    
+
   } else {
     showAlert(t("pleaseSelectFile"), 'warning');
     this.value = '';
@@ -257,7 +285,8 @@ function buildPreview(rows) {
   buildStats(rows);
 
   buildImputationControls(header, rows);
-  document.getElementById("imputation-controls").style.display = "block"; 
+  document.getElementById("enable-imputation").checked = false;
+
 
   const dropListContainer = document.getElementById("drop-columns-list");
   dropListContainer.innerHTML = "";
@@ -299,6 +328,9 @@ function removeCSVFile() {
 }
 
 function buildImputationControls(header, data) {
+
+  const enableImputationCheckbox = document.getElementById("enable-imputation");
+
   const container = document.getElementById("imputation-controls");
   container.innerHTML = "";
 
@@ -345,11 +377,92 @@ function buildImputationControls(header, data) {
     wrapper.appendChild(input);
     container.appendChild(wrapper);
   });
+  
+  const imputationControlsEnable = document.getElementById("container-enable-imputation");
 
   if (!anyMissing) {
     container.textContent = t("noMissingValues");
+    container.style.display = "block";
     container.setAttribute('data-i18n', 'noMissingValues');
+    imputationControlsEnable.style.display = "none";
+    return;
   }
+
+  imputationControlsEnable.style.display = "block";
+  container.style.display = "none";
+
+  enableImputationCheckbox.addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    const imputationControls = document.getElementById("imputation-controls");
+
+    if (checked) {
+      buildImputationControls(header, data);
+      imputationControls.style.display = "block";
+    } else {
+      imputationControls.style.display = "none";
+    }
+  });
+}
+
+function stopTraining() {
+  fetch(`/stop_training/${trainingId}`, { method: 'POST' })
+    .then(response => response.json())
+    .then(data => {
+      if (data.error) {
+        showAlert(t(data.error), 'error');
+        return;
+      }
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+      }
+
+      showAlert(t("trainingStopped"), "info");
+      resetTrainingButtons();
+    })
+    .catch(error => {
+      console.error("Erreur lors de l'arrêt de l'entraînement :", error);
+      showAlert(t("stopTrainingError"), 'error');
+      resetTrainingButtons();
+    });
+}
+
+function resetTrainingButtons() {
+  document.getElementById('start-training-btn').style.display = "inline-block";
+  document.getElementById('stop-training-btn').style.display = "none";
+  document.getElementById('training-spinner').style.display = "none";
+}
+
+function pollTrainingResult(trainingId) {
+  pollingInterval = setInterval(() => {
+    fetch(`/training_result/${trainingId}`)
+      .then(res => {
+        if (res.status === 202) {
+          // Pas encore prêt
+          return null;
+        }
+        return res.json();
+      })
+      .then(result => {
+        if (!result) return;
+
+        clearInterval(pollingInterval); 
+        pollingInterval = null;
+
+        if (result.error) {
+          showAlert(t(result.error), 'error');
+        } else {
+          renderTrainingResults(result); 
+        }
+        resetTrainingButtons();
+      })
+      .catch(err => {
+        console.error("Erreur lors de l'envoi du fichier :", err);
+        clearInterval(pollingInterval);
+        showAlert(t("trainingError"), 'error');
+        resetTrainingButtons();
+      });
+  }, 2000); 
 }
 
 
@@ -373,6 +486,8 @@ function startTraining() {
     return;
   }
 
+  document.getElementById('start-training-btn').style.display = "none";
+  document.getElementById('stop-training-btn').style.display = "inline-block";
   document.getElementById('training-spinner').style.display = "inline-block";
 
   const ext = file.name.split('.').pop().toLowerCase();
@@ -401,58 +516,63 @@ function startTraining() {
     const dropIndexes = header.map((name, idx) => columnsToDrop.includes(name) ? idx : -1).filter(i => i !== -1);
     const cleanedData = data.map(row => row.filter((_, idx) => !dropIndexes.includes(idx)));
 
-    const imputationChoices = {};
-    document.querySelectorAll('#imputation-controls select').forEach(select => {
-      const col = select.dataset.col;
-      const method = select.value;
-      let constant = null;
-      if (method === "constant") {
-        const input = select.nextElementSibling;
-        constant = input.value;
-      }
-      imputationChoices[col] = { method, constant };
-    });
-
     // Appliquer l’imputation
-    const newHeader = cleanedData[0];
-    const colIndexes = Object.keys(imputationChoices).map(col =>
-      ({ col, idx: newHeader.indexOf(col) })
-    );
+    const imputationEnabled = document.getElementById("enable-imputation").checked;
+    let imputationChoices = {};
+    if (imputationEnabled) {
+      document.querySelectorAll('#imputation-controls select').forEach(select => {
+        const col = select.dataset.col;
+        const method = select.value;
+        let constant = null;
+        if (method === "constant") {
+          const input = select.nextElementSibling;
+          constant = input.value;
+        }
+        imputationChoices[col] = { method, constant };
+      });
 
-    for (let rowIdx = 1; rowIdx < cleanedData.length; rowIdx++) {
-      const row = cleanedData[rowIdx];
+      // Appliquer l’imputation
+      const newHeader = cleanedData[0];
+      const colIndexes = Object.keys(imputationChoices).map(col =>
+        ({ col, idx: newHeader.indexOf(col) })
+      );
 
-      for (const { col, idx } of colIndexes) {
-        if (row[idx] === "" || row[idx] === null || row[idx] === undefined) {
-          const { method, constant } = imputationChoices[col];
-          const colValues = cleanedData
-            .slice(1)
-            .map(r => r[idx])
-            .filter(v => v !== "" && v !== null && v !== undefined);
+      for (let rowIdx = 1; rowIdx < cleanedData.length; rowIdx++) {
+        const row = cleanedData[rowIdx];
 
-          let fillValue;
-          if (method === "mean") {
-            const nums = colValues.map(Number).filter(n => !isNaN(n));
-            const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
-            fillValue = mean.toFixed(2);
-          } else if (method === "median") {
-            const nums = colValues.map(Number).filter(n => !isNaN(n)).sort((a, b) => a - b);
-            const mid = Math.floor(nums.length / 2);
-            fillValue = nums.length % 2 === 0
-              ? ((nums[mid - 1] + nums[mid]) / 2).toFixed(2)
-              : nums[mid].toFixed(2);
-          } else if (method === "mode") {
-            const freq = {};
-            colValues.forEach(v => { freq[v] = (freq[v] || 0) + 1; });
-            fillValue = Object.entries(freq).reduce((a, b) => (b[1] > a[1] ? b : a))[0];
-          } else if (method === "constant") {
-            fillValue = constant;
+        for (const { col, idx } of colIndexes) {
+          if (row[idx] === "" || row[idx] === null || row[idx] === undefined) {
+            const { method, constant } = imputationChoices[col];
+            const colValues = cleanedData
+              .slice(1)
+              .map(r => r[idx])
+              .filter(v => v !== "" && v !== null && v !== undefined);
+
+            let fillValue;
+            if (method === "mean") {
+              const nums = colValues.map(Number).filter(n => !isNaN(n));
+              const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+              fillValue = mean.toFixed(2);
+            } else if (method === "median") {
+              const nums = colValues.map(Number).filter(n => !isNaN(n)).sort((a, b) => a - b);
+              const mid = Math.floor(nums.length / 2);
+              fillValue = nums.length % 2 === 0
+                ? ((nums[mid - 1] + nums[mid]) / 2).toFixed(2)
+                : nums[mid].toFixed(2);
+            } else if (method === "mode") {
+              const freq = {};
+              colValues.forEach(v => { freq[v] = (freq[v] || 0) + 1; });
+              fillValue = Object.entries(freq).reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+            } else if (method === "constant") {
+              fillValue = constant;
+            }
+
+            row[idx] = fillValue;
           }
-
-          row[idx] = fillValue;
         }
       }
     }
+
 
     const cleanedDataSWhithoutLastRow = cleanedData.slice(0, -1);
     const csv = Papa.unparse(cleanedDataSWhithoutLastRow, { quotes: false });
@@ -474,15 +594,20 @@ function startTraining() {
     })
     .then(response => response.json())
     .then(data => {
-      document.getElementById('training-spinner').style.display = "none";
+
       if (data.error) {
         showAlert(t(data.error), 'error');
+        resetTrainingButtons();
         return;
       }
-      renderTrainingResults(data);
+
+      const tempTrainingId = data.training_id;
+      trainingId = tempTrainingId
+      pollTrainingResult(tempTrainingId);
+
     })
     .catch(error => {
-      console.log(error);
+      resetTrainingButtons();
       document.getElementById('training-spinner').style.display = "none";
       showAlert(t("trainingError"), 'error');
     });
@@ -810,6 +935,9 @@ function runPrediction() {
         return;
       }
 
+      const plots = data.plots;
+      PlotsPredictionResults = plots;
+
       const predictionResults = document.getElementById('prediction-results');
       predictionResults.innerHTML = `
         <h2 data-i18n="predictionResults">${t("predictionResults")}</h2>
@@ -956,6 +1084,9 @@ async function sendChat() {
     }
     if (dataSetPreview) {
       payload.markdown_preview = dataSetPreview;
+    }
+    if (PlotsPredictionResults) {
+      payload.plots_prediction_results = PlotsPredictionResults;
     }
     const response = await fetch('/chat', {
       method: 'POST',
