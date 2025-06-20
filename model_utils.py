@@ -2,7 +2,7 @@ from autogluon.tabular import TabularPredictor, TabularDataset
 import os
 import pandas as pd
 import matplotlib
-matplotlib.use('Agg')  
+matplotlib.use('Agg')  # Use non-interactive backend for matplotlib
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -11,21 +11,29 @@ import base64
 import numpy as np
 import shap
 
-
 from sklearn.metrics import (
     accuracy_score, f1_score, roc_auc_score,
     mean_squared_error, r2_score, roc_curve, confusion_matrix, ConfusionMatrixDisplay
 )
 
+# Custom exception for user errors
 class UserError(Exception):
     def __init__(self, message_key, status_code=400):
         super().__init__(message_key)
         self.message_key = message_key
         self.status_code = status_code
 
+# Save a matplotlib plot to disk
+def save_plot_to_disk(plt_obj, save_path, filename):
+    full_path = os.path.join(save_path, filename)
+    plt_obj.savefig(full_path, format='png', bbox_inches='tight')
+    return full_path
+
+# Convert a SHAP plot to a base64-encoded PNG image
 def shap_plot_to_base64(plot_func, *args, **kwargs):
     plt.figure()
     plot_func(*args, **kwargs, show=False)
+
     buffer = BytesIO()
     plt.savefig(buffer, format='png', bbox_inches='tight')
     buffer.seek(0)
@@ -33,9 +41,8 @@ def shap_plot_to_base64(plot_func, *args, **kwargs):
     plt.close()
     return image_base64
 
-
-
-def generate_rmse_error_histogram_base64(y_true, y_pred):
+# Generate a histogram of prediction errors (RMSE) and return as base64 image
+def generate_rmse_error_histogram_base64(y_true, y_pred, save_dir=None):
     errors = y_pred - y_true  
     plt.figure(figsize=(8, 6))
     sns.histplot(errors, bins=30, kde=True, color='orange', stat='density')
@@ -46,6 +53,9 @@ def generate_rmse_error_histogram_base64(y_true, y_pred):
     plt.legend()
     plt.tight_layout()
 
+    if save_dir:
+        save_plot_to_disk(plt, save_dir, "rmse_error_distribution.png")
+
     # Encode as base64 image
     buffer = BytesIO()
     plt.savefig(buffer, format='png')
@@ -55,13 +65,17 @@ def generate_rmse_error_histogram_base64(y_true, y_pred):
 
     return image_base64
 
-def generate_feature_importance_plot(importances):
+# Generate a feature importance bar plot and return as base64 image
+def generate_feature_importance_plot(importances, save_dir=None):
     plt.figure(figsize=(10, 6))
     sns.barplot(x=importances['importance'], y=importances.index, palette='viridis')
     plt.title('Feature Importance')
     plt.xlabel('Importance')
     plt.ylabel('Features')
     plt.tight_layout()
+
+    if save_dir:
+        save_plot_to_disk(plt, save_dir, "feature_importance.png")
 
     buffer = BytesIO()
     plt.savefig(buffer, format='png')
@@ -71,9 +85,11 @@ def generate_feature_importance_plot(importances):
 
     return image_base64
 
-def generate_metric_plot(metric_name, y_true=None, y_pred=None, y_proba=None, class_labels=None):
+# Generate metric-specific plots (confusion matrix, ROC, F1, RMSE) and return as base64 image
+def generate_metric_plot(metric_name, y_true=None, y_pred=None, y_proba=None, class_labels=None, save_dir=None):
     fig, ax = plt.subplots()
     metric_name = metric_name.lower()
+    filename = f"{metric_name}.png"
 
     if metric_name == 'accuracy':
         # Display confusion matrix
@@ -100,6 +116,7 @@ def generate_metric_plot(metric_name, y_true=None, y_pred=None, y_proba=None, cl
         ax.set_ylabel("F1 Score")
 
     elif metric_name == 'rmse':
+        # Scatter plot for regression predictions vs actual values
         ax.scatter(y_true, y_pred, alpha=0.5, color='coral', label='Predictions')
         min_val = min(min(y_true), min(y_pred))
         max_val = max(max(y_true), max(y_pred))
@@ -115,6 +132,9 @@ def generate_metric_plot(metric_name, y_true=None, y_pred=None, y_proba=None, cl
         ax.set_axis_off()
 
     plt.tight_layout()
+    if save_dir:
+        save_plot_to_disk(plt, save_dir, filename)
+    
     buffer = BytesIO()
     plt.savefig(buffer, format='png')
     buffer.seek(0)
@@ -122,10 +142,13 @@ def generate_metric_plot(metric_name, y_true=None, y_pred=None, y_proba=None, cl
     plt.close()
     return image_base64
 
-
+# Train an AutoGluon model and return training results and plots
 def train_model(df, target_column, time_limit, save_path, stop_event=None):
     try:
         save_path = os.path.abspath(save_path)
+
+        plot_dir = os.path.join(save_path, "plot_train_results")
+        os.makedirs(plot_dir, exist_ok=True)
 
         if df[target_column].isnull().any():
             raise UserError("error_missing_target_values")
@@ -137,12 +160,11 @@ def train_model(df, target_column, time_limit, save_path, stop_event=None):
         
         predictor.fit(df, time_limit=time_limit)
 
-
         if stop_event and stop_event.is_set():
             raise UserError("training_interrupted")
 
         feature_importance_df = predictor.feature_importance(df)
-        feature_importance_plot = generate_feature_importance_plot(feature_importance_df)
+        feature_importance_plot = generate_feature_importance_plot(feature_importance_df, save_dir=plot_dir)
 
         leaderboard = predictor.leaderboard(silent=True)
         best_model = predictor.model_best
@@ -157,16 +179,17 @@ def train_model(df, target_column, time_limit, save_path, stop_event=None):
         summary = ""
 
         if task_type == 'binary':
+            # Binary classification metrics and plots
             acc = accuracy_score(y_test, y_pred)
             auc = roc_auc_score(y_test, y_proba[class_labels[1]])
             perf_data = {
                 'accuracy': {
                     'value': acc,
-                    'plot': generate_metric_plot('accuracy', y_true=y_test, y_pred=y_pred, class_labels=class_labels)
+                    'plot': generate_metric_plot('accuracy', y_true=y_test, y_pred=y_pred, class_labels=class_labels, save_dir = plot_dir)
                 },
                 'roc_auc': {
                     'value': auc,
-                    'plot': generate_metric_plot('roc_auc', y_true=y_test, y_proba=y_proba[class_labels[1]], class_labels=class_labels)
+                    'plot': generate_metric_plot('roc_auc', y_true=y_test, y_proba=y_proba[class_labels[1]], class_labels=class_labels, save_dir = plot_dir)
                 }
             }
             summary = f"Tâche détectée : classification binaire\n\n"
@@ -176,16 +199,17 @@ def train_model(df, target_column, time_limit, save_path, stop_event=None):
             summary += f"Résultat de la métrique ROC AUC : {perf_data['roc_auc']['value']:.4f}\n"
 
         elif task_type == 'multiclass':
+            # Multiclass classification metrics and plots
             acc = accuracy_score(y_test, y_pred)
             f1 = f1_score(y_test, y_pred, average='macro')
             perf_data = {
                 'accuracy': {
                     'value': acc,
-                    'plot': generate_metric_plot('accuracy', y_true=y_test, y_pred=y_pred, class_labels=class_labels)
+                    'plot': generate_metric_plot('accuracy', y_true=y_test, y_pred=y_pred, class_labels=class_labels, save_dir = plot_dir)
                 },
                 'f1_macro': {
                     'value': f1,
-                    'plot': generate_metric_plot('f1_macro', y_true=y_test, y_pred=y_pred, class_labels=class_labels)
+                    'plot': generate_metric_plot('f1_macro', y_true=y_test, y_pred=y_pred, class_labels=class_labels, save_dir = plot_dir)
                 }
             }
             summary = f"Tâche détectée : classification multiclasse\n\n"
@@ -195,6 +219,7 @@ def train_model(df, target_column, time_limit, save_path, stop_event=None):
             summary += f"Résultat de la métrique F1 macro : {perf_data['f1_macro']['value']:.4f}\n"
 
         elif task_type == 'regression':
+            # Regression metrics and plots
             rmse = np.sqrt(mean_squared_error(y_test, y_pred))
             r2 = r2_score(y_test, y_pred)
             perf_data = {
@@ -203,8 +228,8 @@ def train_model(df, target_column, time_limit, save_path, stop_event=None):
                 },
                 'rmse': {
                     'value': rmse,
-                    'plot': generate_metric_plot('rmse', y_true=y_test, y_pred=y_pred),
-                    'plot_hist': generate_rmse_error_histogram_base64(y_true=y_test, y_pred=y_pred)
+                    'plot': generate_metric_plot('rmse', y_true=y_test, y_pred=y_pred, save_dir = plot_dir),
+                    'plot_hist': generate_rmse_error_histogram_base64(y_true=y_test, y_pred=y_pred, save_dir = plot_dir)
                 }
             }
             summary = f"Tâche détectée : regression\n\n"
@@ -234,7 +259,7 @@ def train_model(df, target_column, time_limit, save_path, stop_event=None):
     except Exception:
         raise UserError("error_unexpected_training")
 
-    
+# Generate SHAP summary plot for model explanations
 def generate_shap_plot(model_path, df, target_column):
     try:
         predictor = TabularPredictor.load(model_path)
@@ -245,7 +270,7 @@ def generate_shap_plot(model_path, df, target_column):
 
         X = df.drop(columns=[target_column])
 
-        # SHAP explainer
+        # SHAP explainer for classification or regression
         if predictor.problem_type in ["binary", "multiclass"]:
             explainer = shap.Explainer(model.predict_proba, X)
         else:
@@ -263,9 +288,7 @@ def generate_shap_plot(model_path, df, target_column):
     except Exception:
         raise UserError("error_shap")
 
-
-
-
+# Plot distribution of predicted values for regression
 def plot_regression_distribution(y_pred):
     plt.figure(figsize=(8, 6))
     sns.histplot(y_pred, bins=30, kde=True, color='skyblue')
@@ -281,6 +304,7 @@ def plot_regression_distribution(y_pred):
     plt.close()
     return image_base64
 
+# Plot boxplot to detect outliers in predictions
 def plot_prediction_outliers(y_pred):
     plt.figure(figsize=(8, 6))
     sns.boxplot(x=y_pred, color="tomato")
@@ -295,6 +319,7 @@ def plot_prediction_outliers(y_pred):
     plt.close()
     return image_base64
 
+# Plot distribution of predicted classes for classification
 def plot_predicted_class_distribution(y_pred):
     plt.figure(figsize=(8, 6))
     sns.countplot(x=y_pred, palette='pastel')
@@ -310,6 +335,7 @@ def plot_predicted_class_distribution(y_pred):
     plt.close()
     return image_base64
 
+# Plot predicted probability distributions for each class
 def plot_prediction_confidence(y_proba_df):
     plt.figure(figsize=(10, 6))
     sns.boxplot(data=y_proba_df, orient='h', palette='Set2')
@@ -325,7 +351,7 @@ def plot_prediction_confidence(y_proba_df):
     plt.close()
     return image_base64
 
-
+# Predict using a trained model and generate relevant plots
 def predict_model(csv_path, model_path):
     try:
         predictor = TabularPredictor.load(model_path)
@@ -343,6 +369,7 @@ def predict_model(csv_path, model_path):
         else:
             raise UserError("error_unsupported_file_format")
 
+        # Remove target column if present
         if predictor.label in df.columns:
             df = df.drop(columns=[predictor.label])
 
@@ -363,6 +390,7 @@ def predict_model(csv_path, model_path):
             'plots': {}
         }
 
+        # Generate plots based on task type
         if task_type == 'regression':
             output_data['plots'] = {
                 'distribution': plot_regression_distribution(predictions),

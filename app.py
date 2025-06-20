@@ -14,10 +14,6 @@ import threading
 from cleanup import cleanup_old_files
 from apscheduler.schedulers.background import BackgroundScheduler
 
-scheduler = BackgroundScheduler()
-scheduler.add_job(cleanup_old_files, 'interval', hours=1)
-scheduler.start()
-
 training_threads = {}
 stop_events = {}
 
@@ -43,13 +39,22 @@ stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(log_formatter)
 stream_handler.setLevel(logging.DEBUG)
 
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
 logging.basicConfig(
     level=logging.DEBUG if os.getenv("DEBUG", "False").lower() == "true" else logging.INFO,
     handlers=[file_handler, error_handler, stream_handler]
 )
-
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(cleanup_old_files, 'interval', hours=1)
+scheduler.start()
+
+logging.getLogger('apscheduler').setLevel(logging.WARNING)
+
 
 UPLOAD_FOLDER = 'uploads'
 MODEL_FOLDER = 'models'
@@ -301,6 +306,7 @@ def chat():
         stats = request.json.get('stats', None)
         shap_plot_base64 = request.json.get('shap_summary_plot', None)
         plot_predictions = request.json.get('plots_prediction_results', None)
+        plot_training_for_prediction = request.json.get('png_result_training_for_prediction', None)
 
         if not user_input:
             return jsonify({"error": "error_empty_message"}), 400
@@ -370,7 +376,11 @@ def chat():
         if plot_predictions:
             for name_plot, plot in plot_predictions.items():
                 if plot:
-                    messages.append({"role": "user", "content": [{"type": "text", "text": f"Voici le graphe {name_plot} des résultats de prédiction."}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{plot}"}}]})
+                    messages.append({"role": "user", "content": [{"type": "text", "text": f"Voici un des graphes {name_plot} des résultats de prédiction."}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{plot}"}}]})
+        if plot_training_for_prediction:
+            for name_plot, plot in plot_training_for_prediction.items():
+                if plot:
+                    messages.append({"role": "user", "content": [{"type": "text", "text": f"Voici un des graphes {name_plot} qui montre les résultats de l'entrainement du modèle qui sert à faire les prédictions."}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{plot}"}}]})
 
         messages.append({"role": "user", "content": user_input})
 

@@ -8,6 +8,8 @@ let shapPlot = null;
 let PlotsPredictionResults = null;
 let trainingId = null;
 let pollingInterval = null;
+let pngResultTrainingForPrediction = null;
+let appMode = 1; // 1 = train, 2 = predict
 
 window.addEventListener("DOMContentLoaded", () => {
   const savedLang = localStorage.getItem("selectedLanguage") || "en";
@@ -98,6 +100,8 @@ function switchMode() {
 
   document.getElementById('training-section').style.display = mode === 'train' ? 'block' : 'none';
   document.getElementById('predict-section').style.display = mode === 'predict' ? 'block' : 'none';
+
+  appMode = mode === 'train' ? 1 : 2;
 }
 
 
@@ -866,9 +870,12 @@ document.getElementById('predict-csv').addEventListener('change', function () {
 function removePredictFile() {
   const input = document.getElementById('predict-csv');
   input.value = '';
+
   document.getElementById('predict-csv-label').style.display = 'inline-block';
   document.getElementById('predict-file-info').style.display = 'none';
   document.getElementById('predict-file-name').textContent = '';
+
+  removePredictModel(); 
 
   // Masquer les étapes suivantes
   document.getElementById('step-2-model').style.display = 'none';
@@ -903,7 +910,7 @@ function removePredictModel() {
 }
 
 
-function runPrediction() {
+async function runPrediction() {
   const datasetInput = document.getElementById('predict-csv');
   const modelInput = document.getElementById('predict-model-zip');
   const dataset = datasetInput.files[0];
@@ -914,9 +921,22 @@ function runPrediction() {
     return;
   }
 
+  const zip = await JSZip.loadAsync(model);
   const formData = new FormData();
+
   formData.append('dataset', dataset);
   formData.append('zip_model', model);
+
+  const pngFiles = [];
+
+  zip.forEach((relativePath, zipEntry) => {
+    if (relativePath.startsWith("plot_train_results/") && relativePath.endsWith(".png")) {
+      pngFiles.push(zipEntry);
+    }
+  });
+
+  pngResultTrainingForPrediction = pngFiles;
+
 
   fetch('/predict', {
     method: 'POST',
@@ -1067,25 +1087,37 @@ async function sendChat() {
     const payload = {
       message,
       lang
-    };    
-    if (Object.keys(summaryResults).length !== 0) {
-      payload.summary = {
-        text: summaryResults.summary, 
-        feature_importance_plot: summaryResults.feature_importance_plot, 
-        metrics_plot: summaryResults.metrics_plot 
-      };
+    };
+    if (appMode === 1){
+      if (Object.keys(summaryResults).length !== 0) {
+        payload.summary = {
+          text: summaryResults.summary, 
+          feature_importance_plot: summaryResults.feature_importance_plot, 
+          metrics_plot: summaryResults.metrics_plot 
+        };
       if (shapPlot){
-        payload.shap_summary_plot = shapPlot
+          payload.shap_summary_plot = shapPlot
+        }
       }
-    }
-    if (dataSetStats){
-      payload.stats = dataSetStats
-    }
-    if (dataSetPreview) {
-      payload.markdown_preview = dataSetPreview;
-    }
-    if (PlotsPredictionResults) {
-      payload.plots_prediction_results = PlotsPredictionResults;
+      if (dataSetStats){
+        payload.stats = dataSetStats
+      }
+      if (dataSetPreview) {
+        payload.markdown_preview = dataSetPreview;
+      }
+    } 
+    if (appMode === 2) {  
+      if (PlotsPredictionResults) {
+        payload.plots_prediction_results = PlotsPredictionResults;
+      }
+      if (pngResultTrainingForPrediction) {
+        payload.png_result_training_for_prediction = {};
+        for (const entry of pngResultTrainingForPrediction) {
+          const base64 = await entry.async("base64");
+          const name = entry.name.split('/').pop(); // ex: 'accuracy_plot.png'
+          payload.png_result_training_for_prediction[name] = base64;
+        }
+      }
     }
     const response = await fetch('/chat', {
       method: 'POST',
@@ -1098,6 +1130,7 @@ async function sendChat() {
     if (!response.ok) {
       const errorData = await response.json();
       showAlert(t(errorData.error), 'error');
+      pngResultTrainingForPrediction = null;
       return;
     }
 
@@ -1116,6 +1149,7 @@ async function sendChat() {
     errorMsg.textContent = t('error_chat', 'error');
     chatBox.appendChild(errorMsg);
     chatBox.scrollTop = chatBox.scrollHeight;
+    pngResultTrainingForPrediction = null;
   } finally {
     input.disabled = false;
     sendButton.disabled = false;
