@@ -575,6 +575,14 @@ button.download-button {
   background-color: #117a8b;
 }
 
+.download-pdf {
+  background-color: #e67e22;  
+}
+
+.download-pdf:hover {
+  background-color: #ca6c1d;  
+}
+
 .generate-shap-button {
   all: unset;
   display: inline-flex;

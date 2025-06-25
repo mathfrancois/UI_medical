@@ -1,9 +1,12 @@
+// Global variables to store state across the app
 let lastTrainedModelPath = null;
 let lastUsedTargetColumn = null;
 let lastCleanedCsvBlob = null;
+let lastDatasetName = null;
 let summaryResults = {};
 let dataSetPreview = null;
 let dataSetStats = null;
+let dataPreprocessing = {};
 let shapPlot = null;
 let PlotsPredictionResults = null;
 let trainingId = null;
@@ -11,6 +14,7 @@ let pollingInterval = null;
 let pngResultTrainingForPrediction = null;
 let appMode = 1; // 1 = train, 2 = predict
 
+// On DOM ready: set language and update time display
 window.addEventListener("DOMContentLoaded", () => {
   const savedLang = localStorage.getItem("selectedLanguage") || "en";
   document.getElementById("language-select").value = savedLang;
@@ -18,6 +22,7 @@ window.addEventListener("DOMContentLoaded", () => {
   updateTimeDisplay();
 });
 
+// Update the time limit display based on slider value
 function updateTimeDisplay(event) {
   const slider = document.getElementById("training-time-limit");
   const display = document.getElementById("time-limit-display");
@@ -47,7 +52,7 @@ function updateTimeDisplay(event) {
   // tooltip.style.left = `${offset}px`;
 }
 
-
+// Toggle settings menu visibility
 const settingsToggle = document.getElementById("settings-toggle");
 const settingsMenu = document.getElementById("settings-menu");
 
@@ -55,7 +60,7 @@ settingsToggle.addEventListener("click", () => {
   settingsMenu.classList.toggle("hidden");
 });
 
-// Fermer si on clique en dehors
+// Close settings menu if clicking outside
 document.addEventListener("click", (event) => {
   if (
     !settingsMenu.contains(event.target) &&
@@ -65,15 +70,16 @@ document.addEventListener("click", (event) => {
   }
 });
 
+// Change language and update UI translations
 function changeLanguage(lang) {
   if (!lang) {
     lang = document.getElementById("language-select").value;
   }
 
-  // Mémoriser la langue choisie
+  // Save selected language
   localStorage.setItem("selectedLanguage", lang);
 
-  // Appliquer les traductions
+  // Apply translations to elements
   const elements = document.querySelectorAll("[data-i18n]");
   elements.forEach((el) => {
     const key = el.getAttribute("data-i18n");
@@ -82,19 +88,20 @@ function changeLanguage(lang) {
     }
   });
 
-  // Placeholder spécial
+  // Special placeholder for chat input
   const chatInput = document.getElementById("chat-input");
   if (translations[lang]["chatPlaceholder"]) {
     chatInput.placeholder = translations[lang]["chatPlaceholder"];
   }
 }
 
+// Translation helper
 function t(key) {
   const lang = localStorage.getItem("selectedLanguage") || "en";
   return translations[lang] && translations[lang][key] ? translations[lang][key] : key;
 }
 
-
+// Switch between train and predict modes
 function switchMode() {
   const mode = document.querySelector('input[name="mode"]:checked').value;
 
@@ -104,19 +111,19 @@ function switchMode() {
   appMode = mode === 'train' ? 1 : 2;
 }
 
-
-
-// Appel initial au chargement
+// Initial call to update time display on DOM load
 document.addEventListener("DOMContentLoaded", updateTimeDisplay);
 
 const timeLimitSeconds = parseInt(document.getElementById("training-time-limit").value);
 
+// Toggle between dataset and model upload sections
 function toggleLoadChoice() {
   const choice = document.querySelector('input[name="load-choice"]:checked').value;
   document.getElementById('csv-upload-section').style.display = (choice === 'dataset') ? 'block' : 'none';
   document.getElementById('model-upload-section').style.display = (choice === 'model') ? 'block' : 'none';
 }
 
+// Remove uploaded model file and reset UI
 function removeModelFile() {
   const input = document.getElementById('upload-model');
   input.value = '';
@@ -126,12 +133,19 @@ function removeModelFile() {
   document.getElementById('model-status').style.display = 'none';
 }
 
-
+// Handle CSV upload, preview, and stats
 document.getElementById('upload-csv').addEventListener('change', function () {
+
   const file = this.files[0];
+  const fileName = file.name;
+  const nameWithoutExtension = fileName.replace(/\.[^/.]+$/, "");  // Supprime la dernière extension
+
+  lastDatasetName = nameWithoutExtension;
+
   const acceptedExtensions = ['.csv', '.xls', '.xlsx', '.xlsm', '.arff'];
+  
   if (file && acceptedExtensions.some(ext => file.name.endsWith(ext))) {
-    // Cacher input + bouton
+    // Hide input and label
     this.style.display = 'none';
     document.getElementById('upload-csv-label').style.display = 'none';
 
@@ -139,7 +153,7 @@ document.getElementById('upload-csv').addEventListener('change', function () {
     document.getElementById('csv-file-info').style.display = 'inline';
 
     const previewTable = document.getElementById('preview-table');
-    previewTable.innerHTML = ''; // Reset tableau
+    previewTable.innerHTML = ''; // Reset table
     document.getElementById('csv-preview').style.display = 'block';
 
     const ext = file.name.split('.').pop().toLowerCase();
@@ -173,6 +187,7 @@ document.getElementById('upload-csv').addEventListener('change', function () {
   }
 });
 
+// Build statistics for each column in the dataset
 function buildStats(rows) {
   const header = rows[0];
   const dataRows = rows.slice(1);
@@ -200,7 +215,7 @@ function buildStats(rows) {
 
 }
 
-
+// Display the statistics table in the UI
 function displayStatsTable(stats) {
   const table = document.getElementById('stats-table');
   table.innerHTML = '';
@@ -234,6 +249,7 @@ function displayStatsTable(stats) {
   });
 }
 
+// Build a preview of the uploaded dataset (first rows, columns, stats)
 function buildPreview(rows) {
   const previewTable = document.getElementById('preview-table');
   previewTable.innerHTML = '';
@@ -249,11 +265,12 @@ function buildPreview(rows) {
     ).length;
   }
 
-  // Stats
+  // Update stats display
   document.getElementById('csv-rows-count').textContent = numRows;
   document.getElementById('csv-columns-count').textContent = numColumns;
   document.getElementById('csv-nan-count').textContent = nanCount;
 
+  // Build table header
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
   header.forEach(col => {
@@ -264,6 +281,7 @@ function buildPreview(rows) {
   thead.appendChild(headRow);
   previewTable.appendChild(thead);
 
+  // Build table body (first 5 rows)
   const tbody = document.createElement("tbody");
   for (let i = 1; i < Math.min(rows.length, 6); i++) {
     const row = rows[i];
@@ -277,7 +295,7 @@ function buildPreview(rows) {
   }
   previewTable.appendChild(tbody);
 
-  // Mise à jour target-column
+  // Update target column select
   const targetSelect = document.getElementById("target-column");
   targetSelect.innerHTML = "";
   header.forEach(col => {
@@ -291,7 +309,7 @@ function buildPreview(rows) {
   buildImputationControls(header, rows);
   document.getElementById("enable-imputation").checked = false;
 
-
+  // Build drop columns checklist
   const dropListContainer = document.getElementById("drop-columns-list");
   dropListContainer.innerHTML = "";
 
@@ -312,9 +330,15 @@ function buildPreview(rows) {
 
     dropListContainer.appendChild(container);
   });
+
+  document.querySelectorAll('#drop-columns-list input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      buildImputationControls(header, rows);
+    });
+  });
 }
 
-
+// Remove uploaded CSV file and reset UI
 function removeCSVFile() {
   const input = document.getElementById('upload-csv');
   input.value = '';
@@ -329,19 +353,35 @@ function removeCSVFile() {
   const resultsDiv = document.getElementById('training-results');
   resultsDiv.style.display = 'none';
   dataSetPreview = null;
+  lastDatasetName = null;
 }
 
+document.getElementById("enable-imputation").addEventListener("change", (e) => {
+  const isChecked = e.target.checked;
+  document.getElementById("imputation-controls").style.display = isChecked ? "block" : "none";
+});
+
+// Build imputation controls for missing values
 function buildImputationControls(header, data) {
-
   const enableImputationCheckbox = document.getElementById("enable-imputation");
-
   const container = document.getElementById("imputation-controls");
+  const imputationControlsEnable = document.getElementById("container-enable-imputation");
   container.innerHTML = "";
+
+  const droppedColumns = new Set(
+    Array.from(document.querySelectorAll('#drop-columns-list input[type="checkbox"]'))
+      .filter(cb => cb.checked)
+      .map(cb => cb.value)
+  );
 
   let anyMissing = false;
 
   header.forEach((colName, colIndex) => {
-    const missing = data.some((row, i) => i > 0 && (row[colIndex] === "" || row[colIndex] === null || row[colIndex] === undefined));
+    if (droppedColumns.has(colName)) return; 
+
+    const missing = data.some((row, i) =>
+      i > 0 && (row[colIndex] === "" || row[colIndex] === null || row[colIndex] === undefined || row[colIndex].toString().toLowerCase() === "nan")
+    );
 
     if (!missing) return;
 
@@ -381,8 +421,6 @@ function buildImputationControls(header, data) {
     wrapper.appendChild(input);
     container.appendChild(wrapper);
   });
-  
-  const imputationControlsEnable = document.getElementById("container-enable-imputation");
 
   if (!anyMissing) {
     container.textContent = t("noMissingValues");
@@ -393,21 +431,10 @@ function buildImputationControls(header, data) {
   }
 
   imputationControlsEnable.style.display = "block";
-  container.style.display = "none";
-
-  enableImputationCheckbox.addEventListener("change", (e) => {
-    const checked = e.target.checked;
-    const imputationControls = document.getElementById("imputation-controls");
-
-    if (checked) {
-      buildImputationControls(header, data);
-      imputationControls.style.display = "block";
-    } else {
-      imputationControls.style.display = "none";
-    }
-  });
+  container.style.display = enableImputationCheckbox.checked ? "block" : "none";
 }
 
+// Stop the training process on the server
 function stopTraining() {
   fetch(`/stop_training/${trainingId}`, { method: 'POST' })
     .then(response => response.json())
@@ -431,18 +458,20 @@ function stopTraining() {
     });
 }
 
+// Reset training buttons to initial state
 function resetTrainingButtons() {
   document.getElementById('start-training-btn').style.display = "inline-block";
   document.getElementById('stop-training-btn').style.display = "none";
   document.getElementById('training-spinner').style.display = "none";
 }
 
+// Poll server for training results until ready
 function pollTrainingResult(trainingId) {
   pollingInterval = setInterval(() => {
     fetch(`/training_result/${trainingId}`)
       .then(res => {
         if (res.status === 202) {
-          // Pas encore prêt
+          // Not ready yet
           return null;
         }
         return res.json();
@@ -468,8 +497,7 @@ function pollTrainingResult(trainingId) {
   }, 2000); 
 }
 
-
-
+// Start the training process: clean data, apply imputation, send to server
 function startTraining() {
   const fileInput = document.getElementById('upload-csv');
   const file = fileInput.files[0];
@@ -480,7 +508,7 @@ function startTraining() {
     return;
   }
 
-  // Colonnes cochées à supprimer
+  // Columns to drop
   const checkboxes = document.querySelectorAll('#drop-columns-list input[type="checkbox"]:checked');
   const columnsToDrop = Array.from(checkboxes).map(cb => cb.value);
 
@@ -514,12 +542,12 @@ function startTraining() {
       return;
     }
 
-    // Supprimer les colonnes cochées
+    // Drop selected columns
     header = data[0];
     const dropIndexes = header.map((name, idx) => columnsToDrop.includes(name) ? idx : -1).filter(i => i !== -1);
     const cleanedData = data.map(row => row.filter((_, idx) => !dropIndexes.includes(idx)));
 
-    // Appliquer l’imputation
+    // Apply imputation if enabled
     const imputationEnabled = document.getElementById("enable-imputation").checked;
     let imputationChoices = {};
     if (imputationEnabled) {
@@ -534,7 +562,7 @@ function startTraining() {
         imputationChoices[col] = { method, constant };
       });
 
-      // Appliquer l’imputation
+      // Apply imputation to missing values
       const newHeader = cleanedData[0];
       const colIndexes = Object.keys(imputationChoices).map(col =>
         ({ col, idx: newHeader.indexOf(col) })
@@ -576,11 +604,18 @@ function startTraining() {
       }
     }
 
+    dataPreprocessing = {
+      data_preprocessing: {
+        columns_drop: columnsToDrop,
+        imputation_missing_value: imputationChoices
+      }
+    };
 
+    // Remove last row (if needed) and convert to CSV
     const cleanedDataSWhithoutLastRow = cleanedData.slice(0, -1);
     const csv = Papa.unparse(cleanedDataSWhithoutLastRow, { quotes: false });
 
-    // Préparation du fichier nettoyé à envoyer
+    // Prepare cleaned file for upload
     const formData = new FormData();
     const blob = new Blob([csv], { type: 'text/csv' });
     formData.append('file', blob, `${file.name}.csv`);
@@ -590,7 +625,7 @@ function startTraining() {
     lastUsedTargetColumn = targetColumn;
     lastCleanedCsvBlob = blob;  
 
-    // Envoi au serveur
+    // Send to server for training
     fetch('/train', {
       method: 'POST',
       body: formData
@@ -623,12 +658,15 @@ function startTraining() {
   }
 }
 
-
+// Render training results and plots in the UI
 function renderTrainingResults(data) {
   lastTrainedModelPath = data.model_path;
   summaryResults["summary"] = data.summary_LLM;
   summaryResults["feature_importance_plot"] = data.feature_importance_plot;
   summaryResults["metrics_plot"] = data.metrics;
+  summaryResults["task_type"] = data.task_type;
+  summaryResults["best_model"] = data.best_model;
+  summaryResults["train_time"] = data.train_time;
   dataSetPreview = data.markdown_preview; 
   const resultsDiv = document.getElementById('training-results');
   resultsDiv.innerHTML = `<h2 data-i18n="trainingResults">${t("trainingResults")}</h2>`;
@@ -723,8 +761,8 @@ function renderTrainingResults(data) {
     summaryHTML += leaderboardHTML;
   }
 
-  plotsHTML += `</div>`; // Fin plots
-  summaryHTML += plotsHTML + `</div>`; // Fin Training Summary
+  plotsHTML += `</div>`; // End plots
+  summaryHTML += plotsHTML + `</div>`; // End Training Summary
   resultsDiv.innerHTML += summaryHTML;
 
   // -------- Model Explainability Section --------
@@ -751,7 +789,7 @@ function renderTrainingResults(data) {
   </div>
   <div class="plot-card" id="shap-plots"></div>`;
 
-  explainabilityHTML += `</div>`; // Fin Model Explainability
+  explainabilityHTML += `</div>`; // End Model Explainability
   resultsDiv.innerHTML += explainabilityHTML;
 
   // -------- Download Buttons --------
@@ -763,6 +801,9 @@ function renderTrainingResults(data) {
       <button class="download-button download-plots" onclick="downloadAllPlots()" data-i18n="downloadPlots">
         📊 ${t("downloadPlots")}
       </button>
+      <button class="download-button download-pdf" onclick="downloadPDF()" data-i18n="downloadPDF">
+        📄 ${t("downloadPDF")}
+      </button>
     </div>
   `;
 
@@ -773,6 +814,7 @@ function renderTrainingResults(data) {
   resultsDiv.style.display = 'block';
 }
 
+// Generate SHAP plot for model explainability
 async function generateShapPlot() {
   if (!lastTrainedModelPath || !lastCleanedCsvBlob || !lastUsedTargetColumn) {
     showAlert(t("missingSHAPInfo"), 'error');
@@ -799,7 +841,6 @@ async function generateShapPlot() {
     button.style.display = "none";
     document.getElementById('training-spinner-shap').style.display = "none";
 
-
     const result = await response.json();
     const shapImage = result.shap_summary_plot;
     shapPlot = shapImage;
@@ -815,7 +856,7 @@ async function generateShapPlot() {
   }
 }
 
-
+// Download all plots as a ZIP file
 function downloadAllPlots() {
   const zip = new JSZip();
   const images = document.querySelectorAll('.plot-card img');
@@ -826,15 +867,15 @@ function downloadAllPlots() {
     zip.file(`${alt || 'plot_' + index}.png`, base64, { base64: true });
   });
 
-  // Récupération du nom du dataset
+  // Get dataset name
   const fileInput = document.getElementById('upload-csv');
   const fileName = fileInput.files.length > 0 ? fileInput.files[0].name.replace(/\.csv$/, '') : 'dataset';
 
-  // Génération d’un timestamp lisible
+  // Generate readable timestamp
   const now = new Date();
   const timestamp = now.toISOString().replace(/[:\-T]/g, '_').split('.')[0]; // ex: 2025_05_30_14_45_12
 
-  // Nom final du fichier zip
+  // Final ZIP filename
   const finalFileName = `${fileName}_plots_${timestamp}.zip`;
 
   zip.generateAsync({ type: "blob" })
@@ -848,8 +889,65 @@ function downloadAllPlots() {
     });
 }
 
+// Download training results as a PDF
+async function downloadPDF() {
+  // Check that all required information is available before generating the PDF
+  if (!dataSetPreview || !dataSetStats || Object.keys(summaryResults).length === 0 || Object.keys(dataPreprocessing).length === 0) {
+    showAlert(t("missingPDFInfo"), 'error');
+    return;
+  }
 
+  try {
+    // Prepare the payload to send to the backend for PDF generation
+    const payload = {
+      summary: summaryResults,
+      preview: dataSetPreview,
+      stats: dataSetStats,
+      data_preprocessing: dataPreprocessing,
+      target_column: lastUsedTargetColumn,
+      dataset_name: lastDatasetName
+    };
+    
+    // Send the request to the backend to generate the PDF
+    const response = await fetch('/download_pdf', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
 
+    // Check if the response is OK
+    if (!response.ok) {
+      showAlert(t("pdfGenerationError"), 'error');
+    }
+
+    // Retrieve the PDF file as a blob
+    const blob = await response.blob();
+
+    // Generate a readable filename using the dataset name and current timestamp
+    const fileInput = document.getElementById('upload-csv');
+    const fileName = fileInput.files.length > 0 ? fileInput.files[0].name.replace(/\.csv$/, '') : 'dataset';
+
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[:\-T]/g, '_').split('.')[0];
+    const finalFileName = `${fileName}_training_summary_${timestamp}.pdf`;
+    
+    // Create a temporary link to trigger the PDF download
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = finalFileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+  } catch (error) {
+    // Show an error if PDF generation fails
+    showAlert(t("trainingErrorNetwork"), 'error');
+  }
+}
+
+// Handle prediction CSV upload and show next step
 document.getElementById('predict-csv').addEventListener('change', function () {
   const file = this.files[0];
   const acceptedExtensions = ['.csv', '.xls', '.xlsx', '.xlsm', '.arff'];
@@ -859,7 +957,7 @@ document.getElementById('predict-csv').addEventListener('change', function () {
     document.getElementById('predict-file-name').textContent = file.name;
     document.getElementById('predict-file-info').style.display = 'inline-block';
 
-    // Affiche l'étape suivante
+    // Show next step
     document.getElementById('step-2-model').style.display = 'block';
   } else {
     showAlert(t("pleaseSelectCFile"), 'warning');
@@ -867,6 +965,7 @@ document.getElementById('predict-csv').addEventListener('change', function () {
   }
 });
 
+// Remove prediction file and reset UI
 function removePredictFile() {
   const input = document.getElementById('predict-csv');
   input.value = '';
@@ -877,12 +976,13 @@ function removePredictFile() {
 
   removePredictModel(); 
 
-  // Masquer les étapes suivantes
+  // Hide next steps
   document.getElementById('step-2-model').style.display = 'none';
   document.getElementById('step-3-predict').style.display = 'none';
   document.getElementById('prediction-results').style.display = 'none';
 }
 
+// Handle prediction model ZIP upload and show next step
 document.getElementById('predict-model-zip').addEventListener('change', function () {
   const file = this.files[0];
   if (file && file.name.endsWith('.zip')) {
@@ -891,7 +991,7 @@ document.getElementById('predict-model-zip').addEventListener('change', function
     document.getElementById('predict-model-name').textContent = file.name;
     document.getElementById('predict-model-info').style.display = 'inline-block';
 
-    // Affiche le bouton prédire
+    // Show predict button
     document.getElementById('step-3-predict').style.display = 'block';
   } else {
     showAlert(t("pleaseSelectZIP"), 'warning');
@@ -899,6 +999,7 @@ document.getElementById('predict-model-zip').addEventListener('change', function
   }
 });
 
+// Remove prediction model and reset UI
 function removePredictModel() {
   const input = document.getElementById('predict-model-zip');
   input.value = '';
@@ -909,7 +1010,7 @@ function removePredictModel() {
   document.getElementById('step-3-predict').style.display = 'none';
 }
 
-
+// Run prediction: send dataset and model to server, display results and plots
 async function runPrediction() {
   const datasetInput = document.getElementById('predict-csv');
   const modelInput = document.getElementById('predict-model-zip');
@@ -936,7 +1037,6 @@ async function runPrediction() {
   });
 
   pngResultTrainingForPrediction = pngFiles;
-
 
   fetch('/predict', {
     method: 'POST',
@@ -966,7 +1066,7 @@ async function runPrediction() {
         </div>
       `;
 
-      // TABLE DE PRÉVISUALISATION
+      // Build preview table
       const tableContainer = document.getElementById('prediction-table-container');
       const table = document.createElement('table');
       table.id = 'prediction-table';
@@ -996,7 +1096,7 @@ async function runPrediction() {
       table.appendChild(tbody);
       tableContainer.appendChild(table);
 
-      // SECTION DES GRAPHIQUES
+      // Display prediction plots
       if (data.plots && Object.keys(data.plots).length > 0) {
         let plotsHTML = `
           <div class="result-section">
@@ -1017,7 +1117,7 @@ async function runPrediction() {
         predictionResults.innerHTML += plotsHTML;
       }
 
-      // BOUTON DE TÉLÉCHARGEMENT DU CSV
+      // Download predictions button
       const downloadUrl = data.download_url || '#';
       predictionResults.innerHTML += `
         <div class="download-buttons-container">
@@ -1037,6 +1137,7 @@ async function runPrediction() {
     });
 }
 
+// Download all prediction plots as a ZIP file
 function downloadAllPredictionPlots() {
   const zip = new JSZip();
   const images = document.querySelectorAll('#prediction-results .plot-card img');
@@ -1064,6 +1165,7 @@ function downloadAllPredictionPlots() {
   });
 }
 
+// Send chat message to backend and display AI response
 async function sendChat() {
   const input = document.getElementById('chat-input');
   const sendButton = document.querySelector('#chat-footer button');
@@ -1105,7 +1207,10 @@ async function sendChat() {
       if (dataSetPreview) {
         payload.markdown_preview = dataSetPreview;
       }
-    } 
+      if (dataPreprocessing) {
+        payload.data_preprocessing = dataPreprocessing;
+      }
+      } 
     if (appMode === 2) {  
       if (PlotsPredictionResults) {
         payload.plots_prediction_results = PlotsPredictionResults;
@@ -1157,16 +1262,16 @@ async function sendChat() {
   }
 }
 
-
-
+// Send chat on Enter (without Shift)
 document.getElementById('chat-input').addEventListener('keydown', function (event) {
-  // Si on appuie sur Entrée sans Maj
+  // If Enter pressed without Shift
   if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault(); // empêche le saut de ligne
+    event.preventDefault(); // prevent newline
     sendChat(); 
   }
 });
 
+// Toggle chat sidebar open/collapsed
 function toggleChatSidebar() {
   const sidebar = document.getElementById('chat-sidebar');
   const toggleButton = document.getElementById('toggle-chat-btn');
@@ -1183,7 +1288,7 @@ function toggleChatSidebar() {
   }
 }
 
-
+// Show alert message in the UI
 function showAlert(message, type = 'error', duration = 10000) {
   const alertBox = document.getElementById('custom-alert');
   alertBox.textContent = message;

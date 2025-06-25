@@ -2,14 +2,15 @@ from autogluon.tabular import TabularPredictor, TabularDataset
 import os
 import pandas as pd
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend for matplotlib
+matplotlib.use('Agg')  
 
 import matplotlib.pyplot as plt
 import seaborn as sns
-from io import BytesIO
 import base64
 import numpy as np
 import shap
+from datetime import datetime
+import io
 
 from sklearn.metrics import (
     accuracy_score, f1_score, roc_auc_score,
@@ -34,7 +35,7 @@ def shap_plot_to_base64(plot_func, *args, **kwargs):
     plt.figure()
     plot_func(*args, **kwargs, show=False)
 
-    buffer = BytesIO()
+    buffer = io.BytesIO()
     plt.savefig(buffer, format='png', bbox_inches='tight')
     buffer.seek(0)
     image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
@@ -57,7 +58,7 @@ def generate_rmse_error_histogram_base64(y_true, y_pred, save_dir=None):
         save_plot_to_disk(plt, save_dir, "rmse_error_distribution.png")
 
     # Encode as base64 image
-    buffer = BytesIO()
+    buffer = io.BytesIO()
     plt.savefig(buffer, format='png')
     buffer.seek(0)
     image_base64 = base64.b64encode(buffer.read()).decode('utf-8')
@@ -77,7 +78,7 @@ def generate_feature_importance_plot(importances, save_dir=None):
     if save_dir:
         save_plot_to_disk(plt, save_dir, "feature_importance.png")
 
-    buffer = BytesIO()
+    buffer = io.BytesIO()
     plt.savefig(buffer, format='png')
     buffer.seek(0)
     image_base64 = base64.b64encode(buffer.read()).decode('utf-8')
@@ -135,7 +136,7 @@ def generate_metric_plot(metric_name, y_true=None, y_pred=None, y_proba=None, cl
     if save_dir:
         save_plot_to_disk(plt, save_dir, filename)
     
-    buffer = BytesIO()
+    buffer = io.BytesIO()
     plt.savefig(buffer, format='png')
     buffer.seek(0)
     image_base64 = base64.b64encode(buffer.read()).decode('utf-8')
@@ -244,7 +245,6 @@ def train_model(df, target_column, time_limit, save_path, stop_event=None):
             'best_model': best_model,
             'train_time': float(leaderboard['fit_time'].sum()),
             'task_type': task_type,
-            'score_metric': score_metric,
             'metrics': perf_data,
             'feature_importance_plot': feature_importance_plot,
             'model_path': save_path,
@@ -297,7 +297,7 @@ def plot_regression_distribution(y_pred):
     plt.ylabel("Frequency")
     plt.tight_layout()
 
-    buffer = BytesIO()
+    buffer = io.BytesIO()
     plt.savefig(buffer, format="png")
     buffer.seek(0)
     image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
@@ -312,7 +312,7 @@ def plot_prediction_outliers(y_pred):
     plt.xlabel("Predicted Value")
     plt.tight_layout()
 
-    buffer = BytesIO()
+    buffer = io.BytesIO()
     plt.savefig(buffer, format="png")
     buffer.seek(0)
     image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
@@ -328,7 +328,7 @@ def plot_predicted_class_distribution(y_pred):
     plt.ylabel("Number of Occurrences")
     plt.tight_layout()
 
-    buffer = BytesIO()
+    buffer = io.BytesIO()
     plt.savefig(buffer, format="png")
     buffer.seek(0)
     image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
@@ -344,7 +344,7 @@ def plot_prediction_confidence(y_proba_df):
     plt.ylabel("Class")
     plt.tight_layout()
 
-    buffer = BytesIO()
+    buffer = io.BytesIO()
     plt.savefig(buffer, format="png")
     buffer.seek(0)
     image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
@@ -416,3 +416,4 @@ def predict_model(csv_path, model_path):
         raise
     except Exception:
         raise UserError("error_unexpected_prediction")
+
