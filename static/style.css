@@ -610,6 +610,15 @@ button.download-button {
   transform: scale(0.98);
 }
 
+.generate-shap-button:disabled,
+.generate-shap-button.disabled-button {
+  background-color: #cccccc !important;
+  color: #666 !important;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none !important;
+}
+
 .button-container {
   display: flex;
   align-items: center;

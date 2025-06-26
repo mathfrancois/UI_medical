@@ -10,7 +10,8 @@ let dataPreprocessing = {};
 let shapPlot = null;
 let PlotsPredictionResults = null;
 let trainingId = null;
-let pollingInterval = null;
+let pollingIntervalTraining = null;
+let currentShapRequestId = null;
 let pngResultTrainingForPrediction = null;
 let appMode = 1; // 1 = train, 2 = predict
 
@@ -354,6 +355,14 @@ function removeCSVFile() {
   resultsDiv.style.display = 'none';
   dataSetPreview = null;
   lastDatasetName = null;
+
+  currentShapRequestId = null;
+
+  const shapPlot = document.getElementById("shap-plots");
+  
+  if (shapPlot) { 
+    shapPlot.innerHTML = '';
+  }
 }
 
 document.getElementById("enable-imputation").addEventListener("change", (e) => {
@@ -443,9 +452,9 @@ function stopTraining() {
         showAlert(t("stopTrainingError"), 'error');
         return;
       }
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-        pollingInterval = null;
+      if (pollingIntervalTraining) {
+        clearInterval(pollingIntervalTraining);
+        pollingIntervalTraining = null;
       }
 
       showAlert(t("trainingStopped"), "info");
@@ -467,7 +476,7 @@ function resetTrainingButtons() {
 
 // Poll server for training results until ready
 function pollTrainingResult(trainingId) {
-  pollingInterval = setInterval(() => {
+  pollingIntervalTraining = setInterval(() => {
     fetch(`/training_result/${trainingId}`)
       .then(res => {
         if (res.status === 202) {
@@ -479,8 +488,8 @@ function pollTrainingResult(trainingId) {
       .then(result => {
         if (!result) return;
 
-        clearInterval(pollingInterval); 
-        pollingInterval = null;
+        clearInterval(pollingIntervalTraining); 
+        pollingIntervalTraining = null;
 
         if (result.error) {
           showAlert(t("trainingErrorGet"), 'error');
@@ -490,11 +499,20 @@ function pollTrainingResult(trainingId) {
         resetTrainingButtons();
       })
       .catch(err => {
-        clearInterval(pollingInterval);
+        clearInterval(pollingIntervalTraining);
         showAlert(t("trainingErrorNetwork"), 'error');
         resetTrainingButtons();
       });
   }, 2000); 
+}
+
+function invalidateShapResult() {
+  const shapPlot = document.getElementById("shap-plots");
+  
+  if (shapPlot) { 
+    shapPlot.innerHTML = '';
+  }
+  currentShapRequestId = null;
 }
 
 // Start the training process: clean data, apply imputation, send to server
@@ -507,6 +525,8 @@ function startTraining() {
     showAlert(t("selectCSVAndTarget"), 'warning');
     return;
   }
+
+  invalidateShapResult();
 
   // Columns to drop
   const checkboxes = document.querySelectorAll('#drop-columns-list input[type="checkbox"]:checked');
@@ -781,13 +801,16 @@ function renderTrainingResults(data) {
   }
 
   explainabilityHTML += `
-  <div class="button-container">
-    <button id="generate-shap-button" onclick="generateShapPlot()" class="generate-shap-button" data-i18n="generateShap">
-      ${t("generateShap")}
-    </button>
-    <div id="training-spinner-shap" class="spinner" style="display: none;"></div>
-  </div>
-  <div class="plot-card" id="shap-plots"></div>`;
+    <div class="button-container">
+      <div style="display: flex; align-items: center; gap: 15px;">
+        <button id="generate-shap-button" onclick="generateShapPlot()" class="generate-shap-button" data-i18n="generateShap">
+          ${t("generateShap")}
+        </button>
+        <div id="training-spinner-shap" class="spinner" style="display: none;"></div>
+      </div>
+    </div>
+    <div class="plot-card" id="shap-plots"></div>`;
+
 
   explainabilityHTML += `</div>`; // End Model Explainability
   resultsDiv.innerHTML += explainabilityHTML;
@@ -814,13 +837,42 @@ function renderTrainingResults(data) {
   resultsDiv.style.display = 'block';
 }
 
+function renderShapResult(result){
+  
+  const tempShapPlot = result.shap_summary_plot
+  shapPlot = tempShapPlot;
+
+  const plotCard = document.getElementById("shap-plots");
+  plotCard.innerHTML = `
+    <h4 data-i18n="shapSummary">${t("shapSummary")}</h4>
+    <img src="data:image/png;base64,${tempShapPlot}" alt="SHAP Summary" />
+  `;
+}
+
+function resetShapButtons() {
+  const button_generate = document.getElementById("generate-shap-button");
+  const spinner = document.getElementById('training-spinner-shap');
+
+  button_generate.disabled = false;  
+  button_generate.style.display = "inline-block";
+  spinner.style.display = "none";
+}
+
 // Generate SHAP plot for model explainability
 async function generateShapPlot() {
   if (!lastTrainedModelPath || !lastCleanedCsvBlob || !lastUsedTargetColumn) {
     showAlert(t("missingSHAPInfo"), 'error');
     return;
   }
-  document.getElementById('training-spinner-shap').style.display = "inline-block";
+
+  const shapRequestId = crypto.randomUUID(); 
+  currentShapRequestId = shapRequestId;
+
+  const button_generate = document.getElementById("generate-shap-button");
+  const spinner = document.getElementById("training-spinner-shap");
+
+  button_generate.disabled = true;
+  spinner.style.display = "inline-block";
 
   const formData = new FormData();
   formData.append("model_path", lastTrainedModelPath);
@@ -834,27 +886,28 @@ async function generateShapPlot() {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(error);
+      resetShapButtons();
+      throw new Error(await response.text());
     }
-    button = document.getElementById("generate-shap-button");
-    button.style.display = "none";
-    document.getElementById('training-spinner-shap').style.display = "none";
 
     const result = await response.json();
-    const shapImage = result.shap_summary_plot;
-    shapPlot = shapImage;
-    const plotCard = document.getElementById("shap-plots");
-    plotCard.innerHTML = `
-      <h4 data-i18n="shapSummary">${t("shapSummary")}</h4>
-      <img src="data:image/png;base64,${shapImage}" alt="SHAP Summary" />
-    `;
+    if (currentShapRequestId === shapRequestId) {
+      renderShapResult(result);
+
+      button_generate.style.display = "none";
+    }
+
   } catch (error) {
-    document.getElementById('training-spinner-shap').style.display = "none";
-    console.error("Erreur SHAP:", error);
     showAlert(t("shapGenerationError") + ": " + error.message, "error");
+    resetShapButtons(); 
+  } finally {
+    spinner.style.display = "none"; 
   }
 }
+
+
+
+
 
 // Download all plots as a ZIP file
 function downloadAllPlots() {
@@ -907,6 +960,9 @@ async function downloadPDF() {
       target_column: lastUsedTargetColumn,
       dataset_name: lastDatasetName
     };
+    if (shapPlot) {
+      payload.shap_summary_plot = shapPlot; // Include SHAP plot if available
+    }
     
     // Send the request to the backend to generate the PDF
     const response = await fetch('/download_pdf', {

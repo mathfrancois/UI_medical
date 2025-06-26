@@ -88,5 +88,6 @@ def get_system_prompt_explanation_plot():
     Do not use Markdown syntax (no **bold** or *italics*). 
     Avoid saying things like "I'd be happy to help". Go straight to the explanation.
     Focus on what the plot shows, how it connects to the metric value, and whether it suggests good model performance.
+    Explain how the plot relates to the model's performance and what it indicates about the data.
     Use plain English and simple sentences.
     """

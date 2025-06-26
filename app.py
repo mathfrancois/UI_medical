@@ -241,7 +241,8 @@ def download_pdf():
         preprocessing = data.get('data_preprocessing', {})
         target_column = data.get('target_column', '')
         dataset_name = data.get('dataset_name', '')
-
+        shap_plot = data.get('shap_summary_plot', None)
+        
         # Construction du résumé des étapes de prétraitement
         preprocessing_summary = build_preprocessing_summary(preprocessing)
 
@@ -252,7 +253,8 @@ def download_pdf():
             dataset_stats,
             preprocessing_summary,
             target_column,
-            dataset_name
+            dataset_name,
+            shap_plot
         )
 
         return send_file(

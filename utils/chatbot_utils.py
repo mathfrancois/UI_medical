@@ -157,7 +157,7 @@ def generate_explanation_plot(plot = None, name = None, value = None):
     return clean_markdown(raw_text)
 
 def generate_pdf(summary_results, dataset_preview, dataset_stats, preprocessing_summary,
-                 target_column, dataset_name, output_dir="pdf_summary"):
+                 target_column, dataset_name, shap_plot, output_dir="pdf_summary"):
     """
     Generates a PDF summary report of the training results, including dataset preview,
     statistics, preprocessing, metrics, plots, and explanations.
@@ -326,6 +326,17 @@ def generate_pdf(summary_results, dataset_preview, dataset_stats, preprocessing_
             elements.append(Paragraph(explanation, styles['Normal']))
 
         elements.append(Spacer(1, 18))
+    if shap_plot:
+        print("shap_plot \n")
+        elements.append(Paragraph("<b>SHAP Summary Plot</b>", styles['Normal']))
+        shap_img_data = base64.b64decode(shap_plot)
+        shap_img_stream = io.BytesIO(shap_img_data)
+        shap_img = Image(shap_img_stream, width=400, height=250)
+        elements.append(shap_img)
+
+        explanation = generate_explanation_plot(plot=shap_plot, name="SHAP Summary", value=None)
+        if explanation:
+            elements.append(Paragraph(explanation, styles['Normal']))
 
     # Build the PDF document and return the buffer
     doc.build(elements)

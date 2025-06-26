@@ -270,6 +270,8 @@ def generate_shap_plot(model_path, df, target_column):
 
         X = df.drop(columns=[target_column])
 
+        X = X.sample(n=min(100, len(X)), random_state=42)  
+
         # SHAP explainer for classification or regression
         if predictor.problem_type in ["binary", "multiclass"]:
             explainer = shap.Explainer(model.predict_proba, X)
