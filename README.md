@@ -6,6 +6,7 @@ This project provides a user-friendly web interface for medical professionals to
 
 ## Project Structure
 
+```markdown
 UI_medical/
 ├── app.py
 ├── cleanup.py
@@ -30,7 +31,7 @@ UI_medical/
     ├── model_utils.py
     ├── chatbot_utils.py
     └── prompts.py
-
+```
 
 
 ---
