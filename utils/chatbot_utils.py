@@ -49,7 +49,8 @@ def handle_chat_request(data):
     # Append dataset preview, stats, training summary if available
     append_if_exists(messages, "Aperçu du dataset fourni :", dataset)
     append_if_exists(messages, "Statistiques du dataset :", stats)
-    append_if_exists(messages, "Résumé des résultats d'entraînement :", summary.get('text'))
+    if summary:
+        append_if_exists(messages, "Résumé des résultats d'entraînement :", summary.get('text'))
 
     # Add metric plots from summary if present
     if summary:
