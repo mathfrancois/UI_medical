@@ -135,9 +135,4 @@ This assistant is designed to work with **non-technical users**.
 
 ---
 
-## License
-
----
-
-## Contact
 
