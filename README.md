@@ -70,6 +70,18 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+### Groq API Key Configuration
+
+This project requires a Groq API key to function. **Do not share your own API key** publicly. Each user should create their own.
+
+1. Sign up and obtain your API key from [Groq](https://console.groq.com/keys).
+2. Create a `.env` file in the root of the project and add the following lines :
+
+GROQ_API_KEY= your_api_key
+FLASK_DEBUG=1
+
+3. Make sure the `.env` file is **not pushed to the repository** (add it to `.gitignore`).
+
 ---
 
 ### Run the Application
