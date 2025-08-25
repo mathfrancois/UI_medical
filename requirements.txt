@@ -300,7 +300,7 @@ tokenizers==0.21.1
 tomli==2.2.1
 toolz==0.12.1
 torch==2.1.2
-torchaudio==2.1.2+cpu
+torchaudio==2.1.2
 torchdata==0.7.1
 torchinfo==1.8.0
 torchmetrics==1.7.1
