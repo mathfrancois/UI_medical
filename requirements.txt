@@ -1,23 +1,9 @@
-# Framework web
-Flask
-
-# AutoGluon
+flask
 autogluon==1.4.0
-
-# Visualisation et statistiques
 seaborn
 shap
-reportlab
-
-# Planification de tâches
-APScheduler
-
-# GPU / ML accélération si nécessaire (pip installera la version compatible avec AutoGluon)
-torch
-torchvision
-torchaudio
-torchtext
-
-# Groq runtime
 groq
+reportlab
+python-dotenv
+apscheduler
 
