@@ -1,29 +1,23 @@
-# PyTorch et dérivés (ne pas fixer de versions pour que pip gère les dépendances)
+# Framework web
+Flask
+
+# AutoGluon
+autogluon==1.4.0
+
+# Visualisation et statistiques
+seaborn
+shap
+reportlab
+
+# Planification de tâches
+APScheduler
+
+# GPU / ML accélération si nécessaire (pip installera la version compatible avec AutoGluon)
 torch
 torchvision
 torchaudio
 torchtext
 
-# AutoGluon (compatible avec torch>=2.2,<2.7)
-autogluon==1.4.0
-numpy==1.26.4
-
-# Transformers et tokenizers
-transformers==4.49.0
-tokenizers==0.21.4
-
-# FastAI et Lightning (version compatible avec torch>=2.2)
-fastai==2.8.4
-pytorch-lightning==2.5.3
-
-# Divers utilitaires
-timm==1.0.3
-tqdm==4.67.1
-thinc==8.3.6
-spacy==3.8.7
-pandas==2.3.2
-scikit-learn==1.7.1
-scipy==1.15.3
-matplotlib==3.10.5
-Flask==3.1.2
+# Groq runtime
+groq
 
