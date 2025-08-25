@@ -54,10 +54,13 @@ for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
 
 # Configure logging
+is_debug = os.getenv("FLASK_DEBUG", "0") in ("1", "true", "True")
+
 logging.basicConfig(
-    level=logging.DEBUG if os.getenv("DEBUG", "False").lower() == "true" else logging.INFO,
+    level=logging.DEBUG if is_debug else logging.INFO,
     handlers=[file_handler, error_handler, stream_handler]
 )
+
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
@@ -381,4 +384,8 @@ def chat():
 
 if __name__ == '__main__':
     logger.info("Starting Flask server.")
-    app.run(debug=app.config['DEBUG'], env=app.config['ENV'])
+
+    port = int(os.environ.get("PORT", 5000))
+
+    app.run(host="0.0.0.0", port=port, debug=is_debug)
+
