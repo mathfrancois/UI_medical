@@ -298,12 +298,12 @@ tinycss2==1.4.0
 tokenizers==0.21.1
 tomli==2.2.1
 toolz==0.12.1
-torch
+torch==2.2.2
 torchaudio
 torchdata==0.7.1
 torchinfo==1.8.0
 torchmetrics==1.7.1
-torchtext==0.16.2
+torchtext==0.17.2
 torchvision==0.16.2
 tornado==6.4.2
 tqdm==4.67.1
