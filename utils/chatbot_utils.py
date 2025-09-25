@@ -15,6 +15,7 @@ import re
 
 # Retrieve the GROQ API key from environment variables
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+print(repr(GROQ_API_KEY))
 
 def clean_markdown(text):
     # Remove markdown bold and italic markers from text
@@ -328,7 +329,6 @@ def generate_pdf(summary_results, dataset_preview, dataset_stats, preprocessing_
 
         elements.append(Spacer(1, 18))
     if shap_plot:
-        print("shap_plot \n")
         elements.append(Paragraph("<b>SHAP Summary Plot</b>", styles['Normal']))
         shap_img_data = base64.b64decode(shap_plot)
         shap_img_stream = io.BytesIO(shap_img_data)

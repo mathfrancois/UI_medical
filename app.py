@@ -47,7 +47,7 @@ error_handler.setLevel(logging.WARNING)
 # Stream handler for console output
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(log_formatter)
-stream_handler.setLevel(logging.DEBUG)
+stream_handler.setLevel(logging.INFO)
 
 # Remove default handlers to avoid duplicate logs
 for handler in logging.root.handlers[:]:
@@ -86,7 +86,6 @@ app.config['ENV'] = os.getenv("FLASK_ENV", "production")
 app.config['DEBUG'] = os.getenv("DEBUG", "False").lower() == "true"
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10 MB max upload
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 ALLOWED_EXTENSIONS = {'csv', 'xls', 'xlsx', 'xlsm', 'arff'}
 
 # Check if file extension is allowed
@@ -100,8 +99,6 @@ def preview_dataset(df, max_rows=5):
     except Exception as e:
         logger.warning(f"Error during dataset preview: {e}")
         return f"Error during dataset preview: {e}"
-
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # Create a unique folder for each training session
 def create_training_folder(dataset_filename, base_dir=MODEL_FOLDER):
@@ -387,5 +384,5 @@ if __name__ == '__main__':
 
     port = int(os.environ.get("PORT", 5000))
 
-    app.run(host="0.0.0.0", port=port, debug=is_debug)
+    app.run(host="0.0.0.0", port=port, debug=False)
 
